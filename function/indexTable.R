@@ -11,7 +11,7 @@ build_index_table <- function(years, gridID = NULL, lat = NULL, lon = NULL) {
   # 2. Logic for choosing the spatial component
   if (!is.null(gridID)) {
     # If gridID is provided, prioritize it
-    index <- tidyr::crossing(year = years, gridID = gridID)
+    index <- data.frame(year = years, gridID = gridID)
     
   } else if (!is.null(lat) && !is.null(lon)) {
     # If no gridID, use lat/lon (must have both)
@@ -20,8 +20,7 @@ build_index_table <- function(years, gridID = NULL, lat = NULL, lon = NULL) {
     }
     
     # Create a coordinates reference and cross with years
-    coords <- data.frame(lat = lat, lon = lon)
-    index <- tidyr::crossing(year = years, coords)
+    index <- data.frame(year = years, lat = lat, lon = lon)
     
   } else {
     # If only years were provided (or lat/lon was incomplete)

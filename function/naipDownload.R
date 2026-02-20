@@ -40,7 +40,7 @@ downloadNAIP_vsi <- function(aoi, year, exportFolder) {
   
   # buffer to 200m 
   aoi_buffered <- aoi |> 
-    sf::st_buffer(dist = 200)
+    sf::st_buffer(dist = 500)
   
   # Create the Lat/Lon bbox for the STAC search
   bbox_4326 <- aoi_buffered |> 

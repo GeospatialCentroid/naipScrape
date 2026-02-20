@@ -11,6 +11,9 @@ mergeAndExportNAIP <- function(files, out_path, aoi) {
   r1 <- terra::rast(files[1])
   # reprojecthe aoi object
   aoi_proj <- terra::project(terra::vect(aoi), crs(r1))
+  # export for files
+  terra::writeVector(aoi_proj,paste0("data/aoiExports/aoi-",aoi$id,".gpkg"))
+
   aoi200_proj <- terra::project(terra::vect(aoi200), crs(r1))
   
   
@@ -29,17 +32,13 @@ mergeAndExportNAIP <- function(files, out_path, aoi) {
     rast <- terra::rast(files)
   }
   # crop and resample
-  m1 <- terra::crop(rast, aoi200_proj) |>
+  m1 <- terra::mask(rast, aoi200_proj) |>
     terra::resample(
       temp,
       method = "bilinear"
     )
   # crop to 1km area 
-  m2 <- terra::crop(rast, aoi_proj) |>
-    terra::resample(
-      temp,
-      method = "bilinear"
-    )
+  m2 <- terra::mask(m1, aoi_proj) 
   # export data 
   buffExport <- paste0(out_path,"/buffered_",aoi$id, ".tif")
   kmExport <- paste0(out_path,"/oneKM_",aoi$id, ".tif")
@@ -79,7 +78,7 @@ mergeAndExportLidar<- function(files, out_path, aoi) {
     rast <- terra::rast(files)
   }
   # crop and resample
-  m1 <- terra::crop(rast, aoi_proj) |>
+  m1 <- terra::mask(rast, aoi_proj) |>
     terra::resample(
       temp,
       method = "bilinear"
@@ -88,8 +87,40 @@ mergeAndExportLidar<- function(files, out_path, aoi) {
   pattern_string <- gsub("_[0-9]+(?=\\.tif$)", "", basename(files[1]), perl = TRUE)
   dsm_Export <- paste0(out_path,"/",pattern_string)
   # write out, 
-  terra::writeRaster(x = m1, dsm_Export)
+  terra::writeRaster(x = m1, dsm_Export, overwrite = TRUE)
   
 }
 
 
+
+# compile data for export 
+copyToExport <- function(id,year){
+  # Define the source directories to check
+  source_dirs <- file.path("data", c("aoiExports", "lidarExports", "naipExports", "snicExports"))
+
+  # 2. Find all files containing the target ID in the target folders
+  files_to_move <- list.files(
+    path = source_dirs,
+    pattern = id,
+    full.names = TRUE
+  )
+
+  # 3. Create the destination directory inside exportData
+  dest_dir <- paste0("data/exportData/aoi_", id, "_",year)
+
+  if (!dir.exists(dest_dir)) {
+    dir.create(dest_dir, recursive = TRUE)
+  }
+  # file copy then remore 
+  for(i in files_to_move){
+    file.copy(i, to = dest_dir)
+    # test for success 
+    newFile <-file.path(dest_dir,basename(i))
+    if(file.exists(newFile)){
+      file.remove(i)
+    }else{
+      message("file was not successful copied")
+      stop()
+    }
+  }
+}
