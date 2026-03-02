@@ -32,13 +32,14 @@ mergeAndExportNAIP <- function(files, out_path, aoi) {
     rast <- terra::rast(files)
   }
   # crop and resample
-  m1 <- terra::mask(rast, aoi200_proj) |>
+  m1 <- terra::crop(rast, aoi200_proj) |>
     terra::resample(
       temp,
       method = "bilinear"
     )
   # crop to 1km area 
-  m2 <- terra::mask(m1, aoi_proj) 
+  m2 <- terra::crop(m1, aoi_proj) |>
+    terra::mask(aoi_proj)
   # export data 
   buffExport <- paste0(out_path,"/buffered_",aoi$id, ".tif")
   kmExport <- paste0(out_path,"/oneKM_",aoi$id, ".tif")
@@ -78,7 +79,7 @@ mergeAndExportLidar<- function(files, out_path, aoi) {
     rast <- terra::rast(files)
   }
   # crop and resample
-  m1 <- terra::mask(rast, aoi_proj) |>
+  m1 <- terra::crop(rast, aoi_proj) |>
     terra::resample(
       temp,
       method = "bilinear"

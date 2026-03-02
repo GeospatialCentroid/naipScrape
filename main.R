@@ -11,6 +11,15 @@ lapply(list.files(path = "function", pattern = ".R",full.names = TRUE), source)
 g100 <- sf::st_read("data/grid100km_aea.gpkg")
 
 
+# random sampling with an LRR 
+mlra <- sf::st_read(dsn = "data/mlra/lower48MLRA.gpkg") |>
+  dplyr::filter(LRRSYM == "F")
+# generate 20 random samples 
+points <- sf::st_sample(x = mlra, size = 24, by_polygon = TRUE)
+coords_df <- as.data.frame(st_coordinates(points))
+table <- build_index_table(years = rep(c("2012", "2016", "2020"), 8),
+                           lat = coords_df$Y,
+                           lon = coords_df$X)
 # build index table 
 # years must be present, either gridID or lat,lon pair is required 
 years <- c("2016", "2016" ,"2016", "2016", "2016", "2016", "2016", "2020", "2020", "2020", "2020", "2020", "2020", "2020", "2020")
@@ -29,6 +38,7 @@ naip_dir <- file.path("data/naipExports")
 snic_dir <- file.path("data/snicExports")
 lidar_dir <- file.path("data/lidarExports")
 temp_dir <- file.path("data/download")
+# final directory for the folders 
 export_dir <- file.path("data/exportData")
 
 
