@@ -53,7 +53,7 @@ for folder_name in os.listdir(input_root):
     # -------------------------
     # Locate files
     # -------------------------
-    vector_path = os.path.join(folder_path, "treesfinal.gpkg")
+    vector_path = os.path.join(folder_path, f"{name_no_year}_treesfinal.gpkg")
     raster_path = os.path.join(folder_path, f"{naip_name}.tif")
 
     if not os.path.exists(vector_path):
