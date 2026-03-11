@@ -65,28 +65,29 @@ for folder_name in os.listdir(input_root):
     # -------------------------
     if os.path.exists(vector_path):
         print(f"Correctly named vector exists: {vector_path}")
+        vector_layer = QgsVectorLayer(vector_path, "trees", "ogr")
+        if not vector_layer.isValid():
+            print("Vector layer failed to load, skipping.")
+            continue
+        burn_value = 1  # polygons will be burned as 1
     elif os.path.exists(old_naming):
         print(f"Renaming '{old_naming}' to '{vector_path}'")
         os.rename(old_naming, vector_path)
+        vector_layer = QgsVectorLayer(vector_path, "trees", "ogr")
+        if not vector_layer.isValid():
+            print("Vector layer failed to load after rename, skipping.")
+            continue
+        burn_value = 1  # polygons will be burned as 1
     else:
-        print(f"No vector file found in {folder_path}, skipping")
-        continue  # skip this folder
+        print(f"No vector file found in {folder_path}, will create empty raster")
+        vector_layer = None
+        burn_value = 0  # entire raster will be zeros
 
     # -------------------------
     # Check raster
     # -------------------------
     if not os.path.exists(raster_path):
         print(f"NAIP raster not found: {raster_path}, skipping {naip_name}")
-        continue
-
-    # -------------------------
-    # Load layers
-    # -------------------------
-    vector_layer = QgsVectorLayer(vector_path, "trees", "ogr")
-    raster_layer = QgsRasterLayer(raster_path, "naip")
-
-    if not vector_layer.isValid() or not raster_layer.isValid():
-        print("Layer failed to load, skipping.")
         continue
 
 
@@ -102,22 +103,35 @@ for folder_name in os.listdir(input_root):
 
     extent_string = f"{extent.xMinimum()},{extent.xMaximum()},{extent.yMinimum()},{extent.yMaximum()}"
 
-    params = {
-        'INPUT': vector_layer,
-        'FIELD': None,
-        'BURN': 1,
-        'USE_Z': False,
-        'UNITS': 1,  # Pixels
-        'WIDTH': raster_layer.width(),
-        'HEIGHT': raster_layer.height(),
-        'EXTENT': extent_string,
-        'NODATA': 255,
-        'INIT': 0,
-        'DATA_TYPE': 0,  # Byte
-        'OUTPUT': output_raster
-    }
+    if vector_layer:
+        params = {
+            'INPUT': vector_layer,
+            'FIELD': None,
+            'BURN': burn_value,
+            'USE_Z': False,
+            'UNITS': 1,
+            'WIDTH': raster_layer.width(),
+            'HEIGHT': raster_layer.height(),
+            'EXTENT': extent_string,
+            'NODATA': 255,
+            'INIT': 0,
+            'DATA_TYPE': 0,  # Byte
+            'OUTPUT': output_raster
+        }
+        processing.run("gdal:rasterize", params)
+    else:
+        # Create empty raster
+        params_empty = {
+            'EXTENT': extent_string,
+            'WIDTH': raster_layer.width(),
+            'HEIGHT': raster_layer.height(),
+            'BURN': 0,
+            'DATA_TYPE': 0,  # Byte
+            'NODATA': 255,
+            'OUTPUT': output_raster
+        }
+        processing.run("gdal:createconstantraster", params_empty)
 
-    processing.run("gdal:rasterize", params)
     print(f"Raster created: {output_raster}")
 
 # -------------------------
