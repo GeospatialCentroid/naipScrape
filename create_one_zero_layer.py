@@ -54,27 +54,27 @@ for folder_name in os.listdir(input_root):
     # Locate and handle files
     # -------------------------
 
-    # Old file path
+    # Paths
+    correct_name = f"{name_no_year}_treesfinal.gpkg"
+    vector_path = os.path.join(folder_path, correct_name)
     old_naming = os.path.join(folder_path, "treesfinal.gpkg")
-    # New file name based on grid
-    new_name = f"{name_no_year}_treesfinal.gpkg"
-    vector_path = os.path.join(folder_path, new_name)
     raster_path = os.path.join(folder_path, f"{naip_name}.tif")
 
-    # 1️⃣ Rename old file if it exists
-    if os.path.exists(old_naming):
+    # -------------------------
+    # Handle old naming
+    # -------------------------
+    if os.path.exists(vector_path):
+        print(f"Correctly named vector exists: {vector_path}")
+    elif os.path.exists(old_naming):
         print(f"Renaming '{old_naming}' to '{vector_path}'")
-        if not os.path.exists(vector_path):  # avoid overwriting
-            os.rename(old_naming, vector_path)
-        else:
-            print(f"Warning: {vector_path} already exists, skipping rename")
+        os.rename(old_naming, vector_path)
+    else:
+        print(f"No vector file found in {folder_path}, skipping")
+        continue  # skip this folder
 
-    # 2️⃣ Check if vector file exists after renaming
-    if not os.path.exists(vector_path):
-        print(f"Vector layer '{vector_path}' not found, skipping.")
-        continue
-
-    # 3️⃣ Check if raster file exists
+    # -------------------------
+    # Check raster
+    # -------------------------
     if not os.path.exists(raster_path):
         print(f"NAIP raster not found: {raster_path}, skipping {naip_name}")
         continue
