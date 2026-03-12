@@ -13,6 +13,8 @@ from qgis.core import *
 from qgis.analysis import QgsNativeAlgorithms
 import processing
 from processing.core.Processing import Processing
+import zipfile
+
 
 # Initialize QGIS
 QgsApplication.setPrefixPath(r"C:\Program Files\QGIS 3.40.15\apps\qgis-ltr", True)
@@ -36,16 +38,20 @@ os.makedirs(output_root, exist_ok=True)
 
 for folder_name in os.listdir(input_root):
     folder_path = os.path.join(input_root, folder_name)
-    if not os.path.isdir(folder_path):
+    print(f"\nProcessing folder: {folder_name}")
+
+
+    # If zip file, extract it
+    if folder_name.endswith(".zip"):
+        print("is a zip file, skipping")
         continue
 
-    print(f"\nProcessing folder: {folder_name}")
 
     # -------------------------
     # Build NAIP name
     # -------------------------
     # Remove prefix and suffix
-    name_clean = folder_name.replace("aoi_", "").replace("_complete", "")
+    name_clean = (folder_name.replace("aoi_", "").replace("_bundle","").replace("_complete", ""))
     # Remove trailing _YYYY
     name_no_year = re.sub(r"_\d{4}$", "", name_clean)
     naip_name = f"oneKM_{name_no_year}"
@@ -99,6 +105,12 @@ for folder_name in os.listdir(input_root):
     # -------------------------
     # Rasterize (GDAL)
     # -------------------------
+    raster_layer = QgsRasterLayer(raster_path, "naip")
+
+    if not raster_layer.isValid():
+        print("Raster layer failed to load, skipping.")
+        continue
+
     extent = raster_layer.extent()
 
     extent_string = f"{extent.xMinimum()},{extent.xMaximum()},{extent.yMinimum()},{extent.yMaximum()}"
@@ -120,17 +132,18 @@ for folder_name in os.listdir(input_root):
         }
         processing.run("gdal:rasterize", params)
     else:
-        # Create empty raster
+        print("Creating empty raster (all zeros)")
+
         params_empty = {
-            'EXTENT': extent_string,
-            'WIDTH': raster_layer.width(),
-            'HEIGHT': raster_layer.height(),
-            'BURN': 0,
-            'DATA_TYPE': 0,  # Byte
-            'NODATA': 255,
+            'INPUT_A': raster_path,
+            'BAND_A': 1,
+            'FORMULA': '0',
+            'NO_DATA': 255,
+            'RTYPE': 0,  # Byte
             'OUTPUT': output_raster
         }
-        processing.run("gdal:createconstantraster", params_empty)
+
+        processing.run("gdal:rastercalculator", params_empty)
 
     print(f"Raster created: {output_raster}")
 
