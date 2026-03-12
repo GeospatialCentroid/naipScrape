@@ -12,7 +12,7 @@ mergeAndExportNAIP <- function(files, out_path, aoi) {
   # reprojecthe aoi object
   aoi_proj <- terra::project(terra::vect(aoi), crs(r1))
   # export for files
-  terra::writeVector(aoi_proj,paste0("data/aoiExports/aoi-",aoi$id,".gpkg"))
+  terra::writeVector(aoi_proj,paste0("data/aoiExports/aoi-",aoi$id,".gpkg"),overwrite = TRUE )
 
   aoi200_proj <- terra::project(terra::vect(aoi200), crs(r1))
   
@@ -44,8 +44,8 @@ mergeAndExportNAIP <- function(files, out_path, aoi) {
   buffExport <- paste0(out_path,"/buffered_",aoi$id, ".tif")
   kmExport <- paste0(out_path,"/oneKM_",aoi$id, ".tif")
   # write out, 
-  terra::writeRaster(x = m1, buffExport)
-  terra::writeRaster(x = m2, kmExport)
+  terra::writeRaster(x = m1, buffExport,overwrite = TRUE )
+  terra::writeRaster(x = m2, kmExport,overwrite = TRUE )
   
 }
 
