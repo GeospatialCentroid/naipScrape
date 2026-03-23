@@ -62,6 +62,9 @@ for folder_name in os.listdir(input_root):
 
     # Paths
     correct_name = f"{name_no_year}_treesfinal.gpkg"
+
+    print(correct_name)
+
     vector_path = os.path.join(folder_path, correct_name)
     old_naming = os.path.join(folder_path, "treesfinal.gpkg")
     raster_path = os.path.join(folder_path, f"{naip_name}.tif")
@@ -112,40 +115,97 @@ for folder_name in os.listdir(input_root):
         continue
 
     extent = raster_layer.extent()
-
     extent_string = f"{extent.xMinimum()},{extent.xMaximum()},{extent.yMinimum()},{extent.yMaximum()}"
 
+    output_raster = os.path.join(folder_path, "trees_binary.tif")
+
+    # -------------------------
+    # 1. If vector exists → process it
+    # -------------------------
     if vector_layer:
-        params = {
+
+        # 1. Split multipolygons
+        vector_layer = processing.run("native:multiparttosingleparts", {
             'INPUT': vector_layer,
+            'OUTPUT': 'memory:'
+        })['OUTPUT']
+
+        # 2. Fix geometries
+        vector_layer = processing.run("native:fixgeometries", {
+            'INPUT': vector_layer,
+            'OUTPUT': 'memory:'
+        })['OUTPUT']
+
+        # 3. Rebuild IDs in memory (no file needed)
+        vector_layer = processing.run("native:refactorfields", {
+            'INPUT': vector_layer,
+            'FIELDS_MAPPING': [
+                {
+                    'name': 'id',
+                    'type': 4,  # Integer
+                    'length': 10,
+                    'precision': 0,
+                    'expression': '@row_number'
+                }
+            ],
+            'OUTPUT': 'memory:'
+        })['OUTPUT']
+
+        print("Feature count after fix:", vector_layer.featureCount())
+
+        # 4. Rasterize directly from memory layer
+        extent = raster_layer.extent()
+        extent_string = f"{extent.xMinimum()},{extent.xMaximum()},{extent.yMinimum()},{extent.yMaximum()}"
+
+        params = {
+            'INPUT': vector_layer,  # memory layer
             'FIELD': None,
-            'BURN': burn_value,
+            'BURN': 1,
             'USE_Z': False,
             'UNITS': 1,
             'WIDTH': raster_layer.width(),
             'HEIGHT': raster_layer.height(),
             'EXTENT': extent_string,
-            'NODATA': 255,
+            'NODATA': 0,
             'INIT': 0,
             'DATA_TYPE': 0,  # Byte
+            'ALL_TOUCHED': True,
             'OUTPUT': output_raster
         }
+
         processing.run("gdal:rasterize", params)
+
+    # -------------------------
+    # 2. No vector → create empty raster
+    # -------------------------
     else:
         print("Creating empty raster (all zeros)")
 
+        extent = raster_layer.extent()
+        extent_string = f"{extent.xMinimum()},{extent.xMaximum()},{extent.yMinimum()},{extent.yMaximum()}"
+
         params_empty = {
-            'INPUT_A': raster_path,
-            'BAND_A': 1,
-            'FORMULA': '0',
-            'NO_DATA': 255,
-            'RTYPE': 0,  # Byte
+            'EXTENT': extent_string,
+            'WIDTH': raster_layer.width(),
+            'HEIGHT': raster_layer.height(),
+            'BURN': 0,
+            'DATA_TYPE': 0,  # Byte
+            'NODATA': 0,
             'OUTPUT': output_raster
         }
 
-        processing.run("gdal:rastercalculator", params_empty)
+        processing.run("gdal:createrasterlayerfromextent", params_empty)
 
     print(f"Raster created: {output_raster}")
+
+import numpy as np
+from osgeo import gdal
+
+ds = gdal.Open(output_raster)
+band = ds.GetRasterBand(1)
+arr = band.ReadAsArray()
+
+print("Unique values:", np.unique(arr))
 
 # -------------------------
 # Cleanup
