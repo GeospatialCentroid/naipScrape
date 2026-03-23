@@ -15,9 +15,9 @@ g100 <- sf::st_read("data/grid100km_aea.gpkg")
 mlra <- sf::st_read(dsn = "data/mlra/lower48MLRA.gpkg") |>
   dplyr::filter(LRRSYM == "F")
 # change seed for difference 
-set.seed(12346)
+set.seed(12347)
 # past seeds 
-# 12345, 
+# 12345, 12346
 # generate 20 random samples 
 points <- sf::st_sample(x = mlra, size = 24, by_polygon = TRUE)
 coords_df <- as.data.frame(st_coordinates(points))
