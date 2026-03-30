@@ -79,48 +79,66 @@ for folder_name in os.listdir(input_root):
     # -------------------------
     # Build NAIP name
     # -------------------------
+
     # Remove prefix and suffix
     name_clean = (folder_name.replace("aoi_", "").replace("_bundle","").replace("_complete", ""))
     # Remove trailing _YYYY
     name_no_year = re.sub(r"_\d{4}$", "", name_clean)
     naip_name = f"oneKM_{name_no_year}"
 
+
     # -------------------------
-    # Locate and handle files
+    # Locate and normalize vector file
     # -------------------------
 
-    # Paths
     correct_name = f"{name_no_year}_treesfinal.gpkg"
-    vector_path = os.path.join(folder_path, correct_name)
-    old_naming = os.path.join(folder_path, "treesfinal.gpkg")
-    raster_path = os.path.join(folder_path, f"{naip_name}.tif")
+    vector_path = None
+    correct_path = os.path.join(folder_path, correct_name)
 
-    # -------------------------
-    # Handle old naming
-    # -------------------------
-    if os.path.exists(vector_path):
-        print(f"Correctly named vector exists: {vector_path}")
+    # Scan folder for any matching file (case-insensitive)
+    for f in os.listdir(folder_path):
+        f_lower = f.lower()
+
+        if f_lower == "treesfinal.gpkg":
+            # Old naming → rename
+            old_path = os.path.join(folder_path, f)
+
+            if not os.path.exists(correct_path):
+                print(f"Renaming '{f}' → '{correct_name}'")
+                os.rename(old_path, correct_path)
+                vector_path = correct_path
+            else:
+                print(f"Both old and new exist, using: {correct_path}")
+                vector_path = correct_path
+
+            break
+
+        elif f_lower.endswith("_treesfinal.gpkg"):
+            # Already correctly named (or close enough)
+            vector_path = os.path.join(folder_path, f)
+
+            break
+
+    # Final check
+    if vector_path:
+        print(f"Using vector: {vector_path}")
         vector_layer = QgsVectorLayer(vector_path, "trees", "ogr")
+
         if not vector_layer.isValid():
             print("Vector layer failed to load, skipping.")
-            continue
-        burn_value = 1  # polygons will be burned as 1
-    elif os.path.exists(old_naming):
-        print(f"Renaming '{old_naming}' to '{vector_path}'")
-        os.rename(old_naming, vector_path)
-        vector_layer = QgsVectorLayer(vector_path, "trees", "ogr")
-        if not vector_layer.isValid():
-            print("Vector layer failed to load after rename, skipping.")
-            continue
-        burn_value = 1  # polygons will be burned as 1
+            vector_layer = None
+        else:
+            burn_value = 1
     else:
         print(f"No vector file found in {folder_path}, will create empty raster")
         vector_layer = None
-        burn_value = 0  # entire raster will be zeros
+        burn_value = 0
 
     # -------------------------
     # Check raster
     # -------------------------
+    raster_path = os.path.join(folder_path, f"{naip_name}.tif")
+
     if not os.path.exists(raster_path):
         print(f"NAIP raster not found: {raster_path}, skipping {naip_name}")
         continue
