@@ -119,6 +119,9 @@ for folder_name in os.listdir(input_root):
 
     output_raster = os.path.join(folder_path, "trees_binary.tif")
 
+    print("Raster extent:", raster_layer.extent())
+    print("Vector extent:", vector_layer.extent())
+
     # -------------------------
     # 1. If vector exists → process it
     # -------------------------
@@ -163,10 +166,10 @@ for folder_name in os.listdir(input_root):
             'BURN': 1,
             'USE_Z': False,
             'UNITS': 1,
-            'WIDTH': raster_layer.width(),
-            'HEIGHT': raster_layer.height(),
+            'WIDTH': raster_layer.rasterUnitsPerPixelX(),
+            'HEIGHT': raster_layer.rasterUnitsPerPixelY(),
             'EXTENT': extent_string,
-            'NODATA': 0,
+            'NODATA': 255,
             'INIT': 0,
             'DATA_TYPE': 0,  # Byte
             'ALL_TOUCHED': True,
@@ -179,24 +182,25 @@ for folder_name in os.listdir(input_root):
     # 2. No vector → create empty raster
     # -------------------------
     else:
-        print("Creating empty raster (all zeros)")
-
-        extent = raster_layer.extent()
-        extent_string = f"{extent.xMinimum()},{extent.xMaximum()},{extent.yMinimum()},{extent.yMaximum()}"
-
-        params_empty = {
-            'EXTENT': extent_string,
-            'WIDTH': raster_layer.width(),
-            'HEIGHT': raster_layer.height(),
-            'BURN': 0,
-            'DATA_TYPE': 0,  # Byte
-            'NODATA': 0,
-            'OUTPUT': output_raster
-        }
-
-        processing.run("gdal:createrasterlayerfromextent", params_empty)
-
-    print(f"Raster created: {output_raster}")
+        continue
+    #     print("Creating empty raster (all zeros)")
+    #
+    #     extent = raster_layer.extent()
+    #     extent_string = f"{extent.xMinimum()},{extent.xMaximum()},{extent.yMinimum()},{extent.yMaximum()}"
+    #
+    #     params_empty = {
+    #         'EXTENT': extent_string,
+    #         'WIDTH': raster_layer.width(),
+    #         'HEIGHT': raster_layer.height(),
+    #         'BURN': 0,
+    #         'DATA_TYPE': 0,  # Byte
+    #         'NODATA': 0,
+    #         'OUTPUT': output_raster
+    #     }
+    #
+    #     processing.run("gdal:createrasterlayerfromextent", params_empty)
+    #
+    # print(f"Raster created: {output_raster}")
 
 import numpy as np
 from osgeo import gdal
