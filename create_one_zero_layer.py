@@ -43,8 +43,37 @@ for folder_name in os.listdir(input_root):
 
     # If zip file, extract it
     if folder_name.endswith(".zip"):
-        print("is a zip file, skipping")
-        continue
+        zip_path = os.path.join(input_root, folder_name)
+
+        # Create extraction folder (same name without .zip)
+        extract_folder = os.path.join(input_root, folder_name.replace(".zip", ""))
+
+        # Only extract if not already extracted
+        if not os.path.exists(extract_folder):
+            print(f"Extracting zip: {folder_name}")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_folder)
+        else:
+            print(f"Already extracted: {extract_folder}")
+
+        folder_path = extract_folder
+        folder_name = os.path.basename(extract_folder)
+
+        if not os.path.isdir(folder_path):
+            print(f"Skipping non-directory: {folder_path}")
+            continue
+
+        # Handle nested folder inside zip
+        subfolders = [f.path for f in os.scandir(folder_path) if f.is_dir()]
+
+        if len(subfolders) == 1:
+            print(f"Using inner folder: {subfolders[0]}")
+            folder_path = subfolders[0]
+            folder_name = os.path.basename(folder_path)
+        else:
+            # Now treat extracted folder like normal folder
+            folder_path = extract_folder
+            folder_name = os.path.basename(extract_folder)
 
 
     # -------------------------
@@ -115,6 +144,9 @@ for folder_name in os.listdir(input_root):
 
     extent_string = f"{extent.xMinimum()},{extent.xMaximum()},{extent.yMinimum()},{extent.yMaximum()}"
 
+    print("Vector exists:", vector_layer is not None)
+    print("Raster exists:", os.path.exists(raster_path))
+
     if vector_layer:
         params = {
             'INPUT': vector_layer,
@@ -122,8 +154,8 @@ for folder_name in os.listdir(input_root):
             'BURN': burn_value,
             'USE_Z': False,
             'UNITS': 1,
-            'WIDTH': raster_layer.width(),
-            'HEIGHT': raster_layer.height(),
+            'WIDTH': raster_layer.rasterUnitsPerPixelX(),
+            'HEIGHT': raster_layer.rasterUnitsPerPixelY(),
             'EXTENT': extent_string,
             'NODATA': 255,
             'INIT': 0,
