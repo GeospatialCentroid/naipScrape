@@ -1,6 +1,6 @@
 # This is a generalized method for downloading material from the planetary computer 
 
-pacman::p_load(dplyr, sf, terra, tidyr)
+pacman::p_load(dplyr, sf, terra, tidyr, tictoc)
 # testing 
 library(tmap)
 tmap_mode(mode = "view")
@@ -15,9 +15,9 @@ g100 <- sf::st_read("data/grid100km_aea.gpkg")
 mlra <- sf::st_read(dsn = "data/mlra/lower48MLRA.gpkg") |>
   dplyr::filter(LRRSYM == "F")
 # change seed for difference 
-set.seed(12347)
+set.seed(12348)
 # past seeds 
-# 12345, 12346
+# 12345, 12346, 12347, 12348
 # generate 20 random samples 
 points <- sf::st_sample(x = mlra, size = 24, by_polygon = TRUE)
 coords_df <- as.data.frame(st_coordinates(points))
@@ -40,93 +40,72 @@ export_dir <- file.path("data/exportData")
 #  lat long value or e ID value could be used. But for now I know we just have id 
 
 
+library(tictoc)
 
-# assuming lat lon for now 
-for(i in 3:nrow(table)){
+# Initialize storage for NAIP-specific timings
+naip_iteration_times <- numeric()
+
+tic("Total Script Runtime") # Overall timer for the whole process
+
+for(i in 1:nrow(table)){
+  # --- Setup (Not Timed) ---
   year <- table$year[i]
   point <- c(table$lon[i], table$lat[i])
-  # grab the aoi object 
   aoi <- getAOI(grid100 = g100, point = point)
-  # using the aoi ID from here 
   id <- aoi$id
+  
   if(dir.exists(paste0("data/exportData/aoi_",id,"_",year))){
     print("AOI complete")
     next()
   }
-
-
-  # test the name year 
+  
+  # ---------------------------------------------------------
+  # START NAIP TIMING
+  # ---------------------------------------------------------
+  tic() 
+  
   years <- getNAIPYear(aoi)
-  cat("NAIP is available for the following years", years)
-  # Condition to test if the year is present in the example 
   if(year %in% years){
     print("NAIP is available for the defined year")
-  }else{
-    print("NAIP is not available for the original year, trying one year less")
+  } else {
     year <- as.character(as.numeric(year) - 1)
-    # next()
   }
-  # download the naip 
-  ## this buffers the aoi by 200m before download
+  
+  # Download
   downloadNAIP_vsi(aoi = aoi, year = year, exportFolder = temp_dir)
   
-  # gather naip files 
+  # Gather and Merge
   naip_string <- paste0("^naip.*", id, ".*\\.tif$")
+  naip_files <- list.files(path = "data/download", pattern = naip_string, full.names = TRUE)
+  mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi)
   
-  # List the files
-  naip_files <- list.files(
-    path = "data/download", # Replace with your actual directory path
-    pattern = naip_string, 
-    full.names = TRUE
-  )
+  # End NAIP Timer and store result
+  naip_timer <- toc(quiet = TRUE)
+  naip_iteration_times <- c(naip_iteration_times, naip_timer$toc - naip_timer$tic)
+  # ---------------------------------------------------------
+  # END NAIP TIMING
+  # ---------------------------------------------------------
   
-  # processing 
-  mergeAndExportNAIP(files =naip_files, out_path = naip_dir, aoi = aoi )
-  
-  # snic processing 
-
-  ## select 1km  rast for areas 
-  r1 <- terra::rast(list.files(
-    path = naip_dir, 
-    pattern = paste0("^oneKM_.*", id, ".*\\.tif$"), 
-    full.names = TRUE
-  ))
-  # generate seeds 
+  # --- SNIC Processing (Untimed) ---
+  r1 <- terra::rast(list.files(path = naip_dir, pattern = paste0("^oneKM_.*", id, ".*\\.tif$"), full.names = TRUE))
   seeds <- generate_scaled_seeds(r = r1)
-
-  # generate the snic objects 
-  process_segmentations(r = r1,
-  seed_list =  seeds,
-  output_dir = "data/snicExports",
-  file_id = id,
-  year = year)
- 
-  # download lidar 
-  ## this downloads the aoi extent 
-  # download_lidar_dsm(aoi = aoi, exportFolder = temp_dir)
-  # 
-  # lidar_string <- paste0("^lidar.*", id, ".*\\.tif$")
-  # 
-  # # List the files
-  # lidar_files <- list.files(
-  #   path = "data/download", # Replace with your actual directory path
-  #   pattern = lidar_string, 
-  #   full.names = TRUE
-  # )
-  # try(mergeAndExportLidar(files = lidar_files, out_path = lidar_dir, aoi = aoi ))
+  process_segmentations(r = r1, seed_list = seeds, output_dir = "data/snicExports", file_id = id, year = year)
   
-  # compile data for export 
-  ## note that this will delete the processed data from the export folders
+  # --- Export (Untimed) ---
   copyToExport(id = id, year = year)
-  ## from here folders are still manually downloaded to local pc for addition to the teams folder 
-  # for zipping export 
-  ## for d in */; do zip -r "${d%/}.zip" "$d"; done
-  # for mac 
-  # for d in */; do zip -r "${d%/}.zip" "$d" -x "*.DS_Store"; done
 }
 
+# End total runtime
+total_runtime <- toc()
 
-
+# --- Reporting ---
+cat("\n==========================================\n")
+cat("NAIP PROCESSING SUMMARY\n")
+cat("Total Loops Processed: ", length(naip_iteration_times), "\n")
+cat("Avg NAIP time per loop: ", round(mean(naip_iteration_times), 2), "seconds\n")
+cat("Total NAIP time (all loops): ", round(sum(naip_iteration_times), 2), "seconds\n")
+cat("Total script runtime: ", round(total_runtime$toc - total_runtime$tic, 2), "seconds\n")
+cat("==========================================\n")
 # options 
 ## clear download 
 if(FALSE){
