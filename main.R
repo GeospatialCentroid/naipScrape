@@ -15,7 +15,7 @@ g100 <- sf::st_read("data/grid100km_aea.gpkg")
 mlra <- sf::st_read(dsn = "data/mlra/lower48MLRA.gpkg") |>
   dplyr::filter(LRRSYM == "F")
 # change seed for difference 
-set.seed(12348)
+set.seed(1244)
 # past seeds 
 # 12345, 12346, 12347, 12348
 # generate 20 random samples 
@@ -81,6 +81,7 @@ for(i in 1:nrow(table)){
   
   # End NAIP Timer and store result
   naip_timer <- toc(quiet = TRUE)
+  print(naip_timer)
   naip_iteration_times <- c(naip_iteration_times, naip_timer$toc - naip_timer$tic)
   # ---------------------------------------------------------
   # END NAIP TIMING
