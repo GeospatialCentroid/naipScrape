@@ -29,8 +29,7 @@ QgsApplication.processingRegistry().addProvider(QgsNativeAlgorithms())
 # -------------------------
 
 input_root = r"C:\Users\C832742681\Documents\binary_again"
-output_root = r"C:\Users\C832742681\Documents\binary_output"
-os.makedirs(output_root, exist_ok=True)
+
 
 # -------------------------
 # 3. Process Each Folder
@@ -109,11 +108,6 @@ for folder_name in os.listdir(input_root):
     else:
         naip_name = f"naip_{year}_id_{grid_id}_wgs84.tif"
 
-        # verify it actually exists
-        if naip_name not in files:
-            raise FileNotFoundError(
-                f"Expected {naip_name} not found in {folder_name}"
-            )
 
     print("Using:", naip_name)
 
@@ -121,7 +115,7 @@ for folder_name in os.listdir(input_root):
     # Locate and normalize vector file
     # -------------------------
 
-    correct_name = f"{name_no_year}_treesfinal.gpkg"
+    correct_name = f"{grid_id}_treesfinal.gpkg"
     vector_path = None
     correct_path = os.path.join(folder_path, correct_name)
 
@@ -167,7 +161,7 @@ for folder_name in os.listdir(input_root):
     # -------------------------
     # Check raster
     # -------------------------
-    raster_path = os.path.join(folder_path, f"{naip_name}.tif")
+    raster_path = os.path.join(folder_path, f"{naip_name}")
 
     if not os.path.exists(raster_path):
         print(f"NAIP raster not found: {raster_path}, skipping {naip_name}")
