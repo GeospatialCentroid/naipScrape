@@ -28,8 +28,8 @@ QgsApplication.processingRegistry().addProvider(QgsNativeAlgorithms())
 # 2. Paths
 # -------------------------
 
-input_root = r"C:\Users\C832742681\Documents\qgis_polygon_selection"
-output_root = input_root  # keeping same output folder
+input_root = r"C:\Users\C832742681\Documents\binary_again"
+output_root = r"C:\Users\C832742681\Documents\binary_output"
 os.makedirs(output_root, exist_ok=True)
 
 # -------------------------
@@ -79,13 +79,43 @@ for folder_name in os.listdir(input_root):
     # -------------------------
     # Build NAIP name
     # -------------------------
+    # Clean folder name
+    name_clean = (
+        folder_name
+        .replace("aoi_", "")
+        .replace("_bundle", "")
+        .replace("_complete", "")
+        .replace("grid_", "")
+    )
 
-    # Remove prefix and suffix
-    name_clean = (folder_name.replace("aoi_", "").replace("_bundle","").replace("_complete", ""))
-    # Remove trailing _YYYY
-    name_no_year = re.sub(r"_\d{4}$", "", name_clean)
-    naip_name = f"oneKM_{name_no_year}"
+    # Extract year
+    year_match = re.search(r"_(\d{4})$", name_clean)
 
+    if year_match:
+        year = year_match.group(1)
+        grid_id = name_clean[:year_match.start()]
+    else:
+        raise ValueError(f"No year found in {folder_name}")
+
+    files = os.listdir(folder_path)
+
+    # Case 1: oneKM exists
+    onekM_name = f"oneKM_{grid_id}.tif"
+
+    if onekM_name in files:
+        naip_name = onekM_name
+
+    # Case 2: fallback to NAIP naming
+    else:
+        naip_name = f"naip_{year}_id_{grid_id}_wgs84.tif"
+
+        # verify it actually exists
+        if naip_name not in files:
+            raise FileNotFoundError(
+                f"Expected {naip_name} not found in {folder_name}"
+            )
+
+    print("Using:", naip_name)
 
     # -------------------------
     # Locate and normalize vector file
