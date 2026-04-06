@@ -28,7 +28,7 @@ QgsApplication.processingRegistry().addProvider(QgsNativeAlgorithms())
 # 2. Paths
 # -------------------------
 
-input_root = r"C:\Users\C832742681\Documents\binary_again"
+input_root = r"C:\Users\C832742681\Documents\binary_test"
 
 
 # -------------------------
@@ -219,7 +219,19 @@ for folder_name in os.listdir(input_root):
 
         processing.run("gdal:rastercalculator", params_empty)
 
-    print(f"Raster created: {output_raster}")
+    # -------------------------
+    # Final Output Check
+    # -------------------------
+    if os.path.exists(output_raster):
+        raster_check = QgsRasterLayer(output_raster, "output_check")
+
+        if raster_check.isValid():
+            print(f"✅ SUCCESS: Raster created and valid: {output_raster}")
+        else:
+            print(f"❌ ERROR: Raster file exists but failed to load: {output_raster}")
+    else:
+        print(f"❌ ERROR: Raster was NOT created: {output_raster}")
+
 
 # -------------------------
 # Cleanup
