@@ -38,10 +38,10 @@ getNAIPYear <- function(aoi) {
 # exportFolder <- "temp/mp_testing/"
 downloadNAIP_vsi <- function(aoi, year, exportFolder) {
   
-  # buffer to 200m 
+  # buffer to 2000m 
   aoi_buffered <- aoi |> 
     sf::st_buffer(dist = 500)
-  
+  # st_bbox(aoi_buffered), 
   # Create the Lat/Lon bbox for the STAC search
   bbox_4326 <- aoi_buffered |> 
     sf::st_transform(crs = 4326) |> 
@@ -53,7 +53,7 @@ downloadNAIP_vsi <- function(aoi, year, exportFolder) {
   search_results <- rstac::stac(stac_endpoint) |>
     rstac::stac_search(
       collections = "naip",
-      bbox = bbox_4326,
+      bbox =  bbox_4326,
       datetime = paste0(year, "-01-01T00:00:00Z/", year, "-12-31T23:59:59Z"),
       limit = 10
     ) |>

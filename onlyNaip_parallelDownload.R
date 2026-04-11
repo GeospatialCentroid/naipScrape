@@ -1,6 +1,8 @@
 # This is a generalized method for downloading material from the planetary computer
 
-pacman::p_load(dplyr, sf, terra, tidyr, tictoc, foreach, doParallel, doSNOW)
+# Swapped doParallel for doSNOW
+pacman::p_load(dplyr, sf, terra, tidyr, tictoc, foreach, doSNOW)
+
 # testing
 library(tmap)
 tmap_mode(mode = "view")
@@ -10,66 +12,56 @@ lapply(list.files(path = "function", pattern = ".R", full.names = TRUE), source)
 # establish grid features
 g100 <- sf::st_read("data/grid100km_aea.gpkg")
 
-
 # random sampling with an LRR
 mlra <- sf::st_read(dsn = "data/mlra/lower48MLRA.gpkg") |>
   dplyr::filter(LRRSYM == "F")
-# change seed for difference
-set.seed(12446)
-# past seeds
-# 12345, 12346, 12347, 12348
-# generate 20 random samples
-points <- sf::st_sample(x = mlra, size = 96, by_polygon = TRUE)
-coords_df <- as.data.frame(st_coordinates(points))
-table <- build_index_table(
-  years = rep(c("2012", "2016", "2020"), 8),
-  lat = coords_df$Y,
-  lon = coords_df$X
-)
 
-
-# using selected 1km grids - need to pull images for each time period, same place 
+# sample areas 
 grids <- readr::read_csv("data/LRR_sampleGrids/selectedSample.csv")
 
-
-# setup some storage
-# Define directory structure
+# ---------------------------------------------------------
+# DIRECTORY SETUP
+# ---------------------------------------------------------
+# Simplified storage: Focusing just on the NAIP imagery
 aoi_dir <- file.path("data/aoiExports")
-naip_dir <- file.path("data/naipExports")
-snic_dir <- file.path("data/snicExports")
-lidar_dir <- file.path("data/lidarExports")
-temp_dir <- file.path("data/download")
-# final directory for the folders
-export_dir <- file.path("data/exportData")
+temp_dir <- file.path("data/download") # Raw tiles go here
+naip_dir <- file.path("data/naipExports") # Final merged unique images go here
+
+# Create directories if they don't exist
+dir.create(temp_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(naip_dir, showWarnings = FALSE, recursive = TRUE)
 
 # Initialize storage for NAIP-specific timings
 naip_iteration_times <- numeric()
 
 tic("Total Script Runtime") # Overall timer for the whole process
 
-# ... [Keep your setup and grid/mlra loading exactly the same above this] ...
-
-# 1. Setup Parallel Backend
-num_cores <- max(1, parallel::detectCores() - 4)
+# 1. Setup Parallel Backend with doSNOW
+num_cores <- max(1, parallel::detectCores() - 6)
 cl <- makeCluster(num_cores)
-registerDoParallel(cl)
+registerDoSNOW(cl)
 
 cat("Starting cluster with", num_cores, "cores...\n")
-tic("Total Script Runtime")
 
 # --- MULTI-YEAR SETUP ---
-# Define the target years and the grid indices you want to process
 target_years <- c("2012", "2016", "2020")
-target_indices <- 1:20 # Replace with 1:nrow(grids) when ready for the full run
+target_indices <- 751:1050 # Replace with 1:nrow(grids) when ready for the full run
 
 # Create a master task list of all index/year combinations
 tasks <- expand.grid(index = target_indices, year = target_years, stringsAsFactors = FALSE)
 
+# Setup the progress bar
+iterations <- nrow(tasks)
+pb <- txtProgressBar(max = iterations, style = 3)
+progress <- function(n) setTxtProgressBar(pb, n)
+opts <- list(progress = progress)
+
 # 2. Execute Parallel Loop
 results <- foreach(
-  task_row = 1:nrow(tasks),
+  task_row = 1:iterations,
   .packages = c("terra", "sf", "tictoc"),
-  .errorhandling = 'pass'
+  .errorhandling = 'pass',
+  .options.snow = opts # Inject the progress bar here
 ) %dopar% {
   
   # Extract parameters for this specific task iteration
@@ -79,8 +71,10 @@ results <- foreach(
   aoi <- getAOI(grid100 = g100, id = grids$id[i])
   id <- aoi$id
   
-  # Check if export already exists for this specific year
-  if (dir.exists(paste0("data/exportData/aoi_", id, "_", target_year))) {
+  # Check if the final merged NAIP image already exists to skip unnecessary processing
+  # Adjust this filename check based on what mergeAndExportNAIP outputs
+  expected_file <- file.path(naip_dir, paste0("naip_", target_year, "_", id, ".tif"))
+  if (file.exists(expected_file)) {
     return(list(id = id, year = target_year, status = "Skipped - Already Exists", time = 0))
   }
   
@@ -95,40 +89,79 @@ results <- foreach(
   tic()
   
   process_status <- tryCatch({
-    # 1. Download
+    # 1. Download raw tiles to temp_dir
     downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir)
     
-    # 2. Gather and Merge (Removed the duplicate code outside this block)
+    # 2. Gather the raw tiles
     naip_string <- paste0("^naip_",actual_year,".*", id, ".*\\.tif$")
-    naip_files <- list.files(path = "data/download", pattern = naip_string, full.names = TRUE)
+    naip_files <- list.files(path = temp_dir, pattern = naip_string, full.names = TRUE)
     
     if (length(naip_files) == 0) {
       stop("Download succeeded but no files matched the regex pattern.")
     }
     
+    # 3. Merge and Export
+    # This function should save the final, single unique image to naip_dir
     mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi)
     
-    # 3. SNIC Processing (Moved inside tryCatch so it only runs if NAIP succeeds)
-    r1 <- terra::rast(list.files(path = naip_dir, pattern = paste0("^oneKM_.*", id, ".*\\.tif$"), full.names = TRUE))
-    seeds <- generate_scaled_seeds(r = r1)
-    process_segmentations(r = r1, seed_list = seeds, output_dir = "data/snicExports", file_id = id, year = actual_year)
-    
-    # 4. Export
-    copyToExport(id = id, year = actual_year)
+    # Optional cleanup: Delete the raw tiles from temp_dir to save disk space
+    process_status <- tryCatch({
+      # 1. Download raw tiles to temp_dir
+      downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir)
+      
+      # 2. Gather the raw tiles
+      naip_string <- paste0("^naip_",actual_year,".*", id, ".*\\.tif$")
+      naip_files <- list.files(path = temp_dir, pattern = naip_string, full.names = TRUE)
+      
+      if (length(naip_files) == 0) {
+        stop("Download succeeded but no files matched the regex pattern.")
+      }
+      
+      # 3. Merge and Export
+      mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi)
+      
+      # ==========================================
+      # 4. AGGRESSIVE MEMORY & DISK CLEANUP
+      # ==========================================
+      
+      # A. Delete the raw downloaded tiles to prevent disk space exhaustion
+      # (Highly recommended: Disk IO failures often masquerade as memory errors in terra)
+      file.remove(naip_files) 
+      
+      # B. Clean up terra's hidden temporary files for this specific worker session
+      terra::tmpFiles(remove = TRUE)
+      
+      # C. Explicitly remove large objects from the worker's environment
+      rm(naip_files, aoi, naip_string)
+      
+      # D. Force R to run garbage collection and release RAM back to the OS
+      gc(reset = TRUE, full = TRUE)
+      
+      # ==========================================
+      
+      "Success"
+    }, error = function(cond) {
+      # Even if it fails, try to run garbage collection
+      gc(reset = TRUE, full = TRUE)
+      terra::tmpFiles(remove = TRUE)
+      return(paste("Failed:", conditionMessage(cond)))
+    })
     
     "Success"
   }, error = function(cond) {
     return(paste("Failed:", conditionMessage(cond)))
   })
   
-  # Capture the time and define elapsed_time so it doesn't throw an error
+  # Capture the time
   t_out <- toc(quiet = TRUE)
   elapsed_time <- t_out$toc - t_out$tic
   
-  # Return the task results including the specific year
+  # Return the task results
   return(list(id = id, year = target_year, status = process_status, time = elapsed_time))
 }
 
+# Close the progress bar and stop the cluster
+close(pb)
 stopCluster(cl)
 total_runtime <- toc()
 
@@ -136,11 +169,10 @@ total_runtime <- toc()
 # REPORTING
 # ---------------------------------------------------------
 
-# Filter out raw errors. If a worker crashed completely due to a bug, 
-# .errorhandling = 'pass' makes that element an error object, not a list.
+# Filter out raw errors.
 valid_results <- Filter(function(x) is.list(x) && !is.null(x$status), results)
 
-# Now safely categorize the results
+# Safely categorize the results
 successful_runs <- valid_results[sapply(valid_results, function(x) x$status == "Success")]
 failed_runs <- valid_results[sapply(valid_results, function(x) grepl("Failed", x$status))]
 skipped_runs <- valid_results[sapply(valid_results, function(x) grepl("Skipped", x$status))]

@@ -5,7 +5,7 @@ mergeAndExportNAIP <- function(files, out_path, aoi) {
   ## one strict the naip aoi 
   
   # buffer to 200 meters
-  aoi200 <- sf::st_buffer(aoi, dist = 200)
+  aoi200 <- sf::st_buffer(aoi, dist = 250)
   
   # get a template rast for CRS information 
   r1 <- terra::rast(files[1])
