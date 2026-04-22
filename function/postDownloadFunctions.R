@@ -1,11 +1,11 @@
 
-mergeAndExportNAIP <- function(files, out_path, aoi) {
+mergeAndExportNAIP <- function(files, out_path, aoi, year) {
   # generates two images 
   ## one with 200m buffer 
   ## one strict the naip aoi 
   
-  # buffer to 200 meters
-  aoi200 <- sf::st_buffer(aoi, dist = 250)
+  # buffer to 500 meters for a 2x2km area 
+  aoi500 <- sf::st_buffer(aoi, dist = 500)
   
   # get a template rast for CRS information 
   r1 <- terra::rast(files[1])
@@ -14,13 +14,13 @@ mergeAndExportNAIP <- function(files, out_path, aoi) {
   # export for files
   terra::writeVector(aoi_proj,paste0("data/aoiExports/aoi-",aoi$id,".gpkg"),overwrite = TRUE )
 
-  aoi200_proj <- terra::project(terra::vect(aoi200), crs(r1))
+  aoi500_proj <- terra::project(terra::vect(aoi500), crs(r1))
   
   
   # generate a template raster 1 m
   temp <- terra::rast(
-    extent = ext(aoi200_proj),
-    crs = crs(aoi200_proj),
+    extent = ext(aoi500_proj),
+    crs = crs(aoi500_proj),
     nlyrs = 4,
     resolution = 1 # 1 meter
   )
@@ -32,17 +32,18 @@ mergeAndExportNAIP <- function(files, out_path, aoi) {
     rast <- terra::rast(files)
   }
   # crop and resample
-  m1 <- terra::crop(rast, aoi200_proj) |>
+  m1 <- terra::crop(rast, aoi500_proj) |>
     terra::resample(
       temp,
       method = "bilinear"
-    )
+    )|>
+    terra::mask(aoi500_proj)
   # crop to 1km area 
   m2 <- terra::crop(m1, aoi_proj) |>
     terra::mask(aoi_proj)
   # export data 
-  buffExport <- paste0(out_path,"/buffered_",aoi$id, ".tif")
-  kmExport <- paste0(out_path,"/oneKM_",aoi$id, ".tif")
+  buffExport <- paste0(out_path,"/buffered_",aoi$id,"_",year, ".tif")
+  kmExport <- paste0(out_path,"/oneKM_",aoi$id,"_",year, ".tif")
   # write out, 
   terra::writeRaster(x = m1, buffExport,overwrite = TRUE )
   terra::writeRaster(x = m2, kmExport,overwrite = TRUE )

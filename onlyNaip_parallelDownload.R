@@ -37,7 +37,7 @@ naip_iteration_times <- numeric()
 tic("Total Script Runtime") # Overall timer for the whole process
 
 # 1. Setup Parallel Backend with doSNOW
-num_cores <- max(1, parallel::detectCores() - 6)
+num_cores <- max(1, parallel::detectCores() - 16)
 cl <- makeCluster(num_cores)
 registerDoSNOW(cl)
 
@@ -45,7 +45,7 @@ cat("Starting cluster with", num_cores, "cores...\n")
 
 # --- MULTI-YEAR SETUP ---
 target_years <- c("2012", "2016", "2020")
-target_indices <- 751:1050 # Replace with 1:nrow(grids) when ready for the full run
+target_indices <- 1:100 # Replace with 1:nrow(grids) when ready for the full run # 1050 is the current end point 
 
 # Create a master task list of all index/year combinations
 tasks <- expand.grid(index = target_indices, year = target_years, stringsAsFactors = FALSE)
@@ -71,18 +71,21 @@ results <- foreach(
   aoi <- getAOI(grid100 = g100, id = grids$id[i])
   id <- aoi$id
   
-  # Check if the final merged NAIP image already exists to skip unnecessary processing
-  # Adjust this filename check based on what mergeAndExportNAIP outputs
-  expected_file <- file.path(naip_dir, paste0("naip_", target_year, "_", id, ".tif"))
-  if (file.exists(expected_file)) {
-    return(list(id = id, year = target_year, status = "Skipped - Already Exists", time = 0))
-  }
-  
-  # Fallback year logic
+  # Fallback year logic (Needs to happen before the file check)
   years <- getNAIPYear(aoi)
   actual_year <- target_year
   if (!target_year %in% years) {
     actual_year <- as.character(as.numeric(target_year) - 1)
+  }
+  
+  # Define the expected final files using naip_dir
+  buffExport <- file.path(naip_dir, paste0("buffered_", id, "_", actual_year, ".tif"))
+  kmExport <- file.path(naip_dir, paste0("oneKM_", id, "_", actual_year, ".tif"))
+  
+  # Check if BOTH files already exist
+  if (file.exists(buffExport) && file.exists(kmExport)) {
+    # Exit this iteration early and report as Skipped
+    return(list(id = id, year = target_year, status = "Skipped - Files Exist", time = 0))
   }
   
   # Start the timer for this iteration
@@ -93,62 +96,30 @@ results <- foreach(
     downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir)
     
     # 2. Gather the raw tiles
-    naip_string <- paste0("^naip_",actual_year,".*", id, ".*\\.tif$")
+    naip_string <- paste0("^naip_", actual_year, ".*", id, ".*\\.tif$")
     naip_files <- list.files(path = temp_dir, pattern = naip_string, full.names = TRUE)
     
     if (length(naip_files) == 0) {
       stop("Download succeeded but no files matched the regex pattern.")
     }
     
-    # 3. Merge and Export
-    # This function should save the final, single unique image to naip_dir
-    mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi)
+    # 3. Merge and Export (Check removed here since it's handled at the top)
+    mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi, year = actual_year)
     
-    # Optional cleanup: Delete the raw tiles from temp_dir to save disk space
-    process_status <- tryCatch({
-      # 1. Download raw tiles to temp_dir
-      downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir)
-      
-      # 2. Gather the raw tiles
-      naip_string <- paste0("^naip_",actual_year,".*", id, ".*\\.tif$")
-      naip_files <- list.files(path = temp_dir, pattern = naip_string, full.names = TRUE)
-      
-      if (length(naip_files) == 0) {
-        stop("Download succeeded but no files matched the regex pattern.")
-      }
-      
-      # 3. Merge and Export
-      mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi)
-      
-      # ==========================================
-      # 4. AGGRESSIVE MEMORY & DISK CLEANUP
-      # ==========================================
-      
-      # A. Delete the raw downloaded tiles to prevent disk space exhaustion
-      # (Highly recommended: Disk IO failures often masquerade as memory errors in terra)
-      file.remove(naip_files) 
-      
-      # B. Clean up terra's hidden temporary files for this specific worker session
-      terra::tmpFiles(remove = TRUE)
-      
-      # C. Explicitly remove large objects from the worker's environment
-      rm(naip_files, aoi, naip_string)
-      
-      # D. Force R to run garbage collection and release RAM back to the OS
-      gc(reset = TRUE, full = TRUE)
-      
-      # ==========================================
-      
-      "Success"
-    }, error = function(cond) {
-      # Even if it fails, try to run garbage collection
-      gc(reset = TRUE, full = TRUE)
-      terra::tmpFiles(remove = TRUE)
-      return(paste("Failed:", conditionMessage(cond)))
-    })
+    # ==========================================
+    # 4. AGGRESSIVE MEMORY & DISK CLEANUP
+    # ==========================================
+    file.remove(naip_files) 
+    terra::tmpFiles(remove = TRUE)
+    rm(naip_files, aoi, naip_string)
+    gc(reset = TRUE, full = TRUE)
+    # ==========================================
     
     "Success"
   }, error = function(cond) {
+    # Even if it fails, try to run garbage collection
+    gc(reset = TRUE, full = TRUE)
+    terra::tmpFiles(remove = TRUE)
     return(paste("Failed:", conditionMessage(cond)))
   })
   
@@ -200,9 +171,9 @@ cat(
 )
 cat("==========================================\n")
 
-if (length(failed_runs) > 0) {
-  cat("\nError Log:\n")
-  for (fail in failed_runs) {
-    cat("ID:", fail$id, "| Year:", fail$year, "| Error:", fail$status, "\n")
-  }
-}
+# if (length(failed_runs) > 0) {
+#   cat("\nError Log:\n")
+#   for (fail in failed_runs) {
+#     cat("ID:", fail$id, "| Year:", fail$year, "| Error:", fail$status, "\n")
+#   }
+# }
