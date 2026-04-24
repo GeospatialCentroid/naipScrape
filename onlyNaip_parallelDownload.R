@@ -37,7 +37,7 @@ naip_iteration_times <- numeric()
 tic("Total Script Runtime") # Overall timer for the whole process
 
 # 1. Setup Parallel Backend with doSNOW
-num_cores <- max(1, parallel::detectCores() - 16)
+num_cores <- max(1, parallel::detectCores() - 20)
 cl <- makeCluster(num_cores)
 registerDoSNOW(cl)
 
@@ -45,7 +45,53 @@ cat("Starting cluster with", num_cores, "cores...\n")
 
 # --- MULTI-YEAR SETUP ---
 target_years <- c("2012", "2016", "2020")
-target_indices <- 1:100 # Replace with 1:nrow(grids) when ready for the full run # 1050 is the current end point 
+# 1. Get the list of all exported files
+exported_files <- list.files(path = "data/naipExports", pattern = "\\.tif$")
+
+# 2. Extract the IDs from the filenames
+# This regex strips the "oneKM_" or "buffered_" prefix and the "_YYYY.tif" suffix
+# "oneKM_1936-4-c-14-2_2015.tif" becomes "1936-4-c-14-2"
+exported_ids <- unique(gsub("^(oneKM|buffered)_(.*)_[0-9]{4}\\.tif$", "\\2", exported_files))
+
+# 3. Filter your grids dataframe
+
+# Option A: Keep only the grids that HAVE been exported
+grids_completed <- grids |>
+  filter(id %in% exported_ids)
+#use this to clear out data from the download folder. 
+# 1. Define the target directory
+# Path derived from the screenshot provided
+download_dir <- "data/download"
+
+# 2. Get the full paths of all raw tile files
+download_files <- list.files(path = download_dir, pattern = "\\.tif$", full.names = TRUE)
+
+# 3. Extract just the file names (without the directory paths) to run the regex on
+file_names <- basename(download_files)
+
+# 4. Extract the grid ID from the filenames
+# This regex strips "naip_YYYY_id_" from the front and "_X.tif" from the back
+# Example: "naip_2015_id_2000-2-b-16-4_2.tif" becomes "2000-2-b-16-4"
+download_ids <- gsub("^naip_[0-9]{4}_id_(.*)_[0-9]+\\.tif$", "\\1", file_names)
+
+# 5. Identify which of these files match the IDs in your completed dataframe
+# We use logical subsetting to keep only the file paths where the ID matches
+files_to_delete <- download_files[download_ids %in% grids_completed$id]
+
+# 6. Execute the deletion
+deleted_count <- sum(file.remove(files_to_delete))
+
+cat("Successfully deleted", deleted_count, "raw tile files.\n")
+
+
+# Option B: Keep only the grids that HAVE NOT been exported
+grids_missing <- grids |>
+  filter(!id %in% exported_ids)
+# use this to ensure only 
+# manual 
+target_indices <- 1391:1400 # Replace with 1:nrow(grids) when ready for the full run # 1050 is the current end point 
+# target_indices <- 1:nrow(grids_missing) # Replace with 1:nrow(grids) when ready for the full run # 1050 is the current end point 
+
 
 # Create a master task list of all index/year combinations
 tasks <- expand.grid(index = target_indices, year = target_years, stringsAsFactors = FALSE)
