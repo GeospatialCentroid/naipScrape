@@ -32,16 +32,12 @@ getNAIPYear <- function(aoi) {
   message("Naip is available at the following years")
   print(available_years)
 }
-
-# aoi <- getAOI(grid100 = grid100, id = "1415-3-12-4-1")
-# year <- "2020"
-# exportFolder <- "temp/mp_testing/"
 downloadNAIP_vsi <- function(aoi, year, exportFolder) {
   
-  # buffer to 2000m 
+  # buffer to 500m (Note: comment originally said 2000m, keeping your 500m code)
   aoi_buffered <- aoi |> 
     sf::st_buffer(dist = 500)
-  # st_bbox(aoi_buffered), 
+  
   # Create the Lat/Lon bbox for the STAC search
   bbox_4326 <- aoi_buffered |> 
     sf::st_transform(crs = 4326) |> 
@@ -73,6 +69,15 @@ downloadNAIP_vsi <- function(aoi, year, exportFolder) {
   # 4. Process each intersecting tile
   for (i in seq_along(image_urls)) {
     
+    # Define output filename FIRST so we can check if it exists
+    out_file <- file.path(exportFolder, paste0("naip_", year, "_id_", aoi$id[1], "_", i, ".tif"))
+    
+    # Check if file already exists
+    if (file.exists(out_file)) {
+      message("File already exists, skipping: ", basename(out_file))
+      next # Skips the rest of the loop and moves to the next 'i'
+    }
+    
     # Prepend the VSI curl prefix for remote reading
     vsi_path <- paste0("/vsicurl/", image_urls[i])
     
@@ -82,9 +87,6 @@ downloadNAIP_vsi <- function(aoi, year, exportFolder) {
     # Project our AOI to match the NAIP tile's CRS (usually UTM)
     aoi_proj <- sf::st_transform(aoi_buffered, crs = terra::crs(remote_rast))
     
-    # Define output filename
-    out_file <- file.path(exportFolder, paste0("naip_", year, "_id_", aoi$id[1], "_", i, ".tif"))
-    
     message("Cropping and downloading area from tile ", i, "...")
     
     # This step ONLY downloads the pixels within the crop extent
@@ -93,4 +95,3 @@ downloadNAIP_vsi <- function(aoi, year, exportFolder) {
   
   message("Success! Cropped images saved to: ", exportFolder)
 }
-

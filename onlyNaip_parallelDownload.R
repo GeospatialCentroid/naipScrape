@@ -1,7 +1,7 @@
 # This is a generalized method for downloading material from the planetary computer
 
 # Swapped doParallel for doSNOW
-pacman::p_load(dplyr, sf, terra, tidyr, tictoc, foreach, doSNOW)
+pacman::p_load(dplyr, sf, terra, tidyr, tictoc, foreach, doSNOW,rstac)
 
 # testing
 library(tmap)
@@ -25,11 +25,23 @@ grids <- readr::read_csv("data/LRR_sampleGrids/selectedSample.csv")
 # Simplified storage: Focusing just on the NAIP imagery
 aoi_dir <- file.path("data/aoiExports")
 temp_dir <- file.path("data/download") # Raw tiles go here
+local <- FALSE
+if(local){
 naip_dir <- file.path("data/naipExports") # Final merged unique images go here
+
+}else{
+# or save directly to the network drive 
+naip_dir <- "/Volumes/wcnr-network/Research/Ogle/Agroforestry/phase2_sampling/data/raw/mlraF_NAIP"
+
+}
+
+
+
 
 # Create directories if they don't exist
 dir.create(temp_dir, showWarnings = FALSE, recursive = TRUE)
 dir.create(naip_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(aoi_dir, showWarnings = FALSE, recursive = TRUE)
 
 # Initialize storage for NAIP-specific timings
 naip_iteration_times <- numeric()
@@ -37,7 +49,7 @@ naip_iteration_times <- numeric()
 tic("Total Script Runtime") # Overall timer for the whole process
 
 # 1. Setup Parallel Backend with doSNOW
-num_cores <- max(1, parallel::detectCores() - 20)
+num_cores <- max(1, parallel::detectCores() - 10)
 cl <- makeCluster(num_cores)
 registerDoSNOW(cl)
 
@@ -61,27 +73,27 @@ grids_completed <- grids |>
 #use this to clear out data from the download folder. 
 # 1. Define the target directory
 # Path derived from the screenshot provided
-download_dir <- "data/download"
+# download_dir <- "data/download"
 
-# 2. Get the full paths of all raw tile files
-download_files <- list.files(path = download_dir, pattern = "\\.tif$", full.names = TRUE)
+# # 2. Get the full paths of all raw tile files
+# download_files <- list.files(path = download_dir, pattern = "\\.tif$", full.names = TRUE)
 
-# 3. Extract just the file names (without the directory paths) to run the regex on
-file_names <- basename(download_files)
+# # 3. Extract just the file names (without the directory paths) to run the regex on
+# file_names <- basename(download_files)
 
-# 4. Extract the grid ID from the filenames
-# This regex strips "naip_YYYY_id_" from the front and "_X.tif" from the back
-# Example: "naip_2015_id_2000-2-b-16-4_2.tif" becomes "2000-2-b-16-4"
-download_ids <- gsub("^naip_[0-9]{4}_id_(.*)_[0-9]+\\.tif$", "\\1", file_names)
+# # 4. Extract the grid ID from the filenames
+# # This regex strips "naip_YYYY_id_" from the front and "_X.tif" from the back
+# # Example: "naip_2015_id_2000-2-b-16-4_2.tif" becomes "2000-2-b-16-4"
+# download_ids <- gsub("^naip_[0-9]{4}_id_(.*)_[0-9]+\\.tif$", "\\1", file_names)
 
-# 5. Identify which of these files match the IDs in your completed dataframe
-# We use logical subsetting to keep only the file paths where the ID matches
-files_to_delete <- download_files[download_ids %in% grids_completed$id]
+# # 5. Identify which of these files match the IDs in your completed dataframe
+# # We use logical subsetting to keep only the file paths where the ID matches
+# files_to_delete <- download_files[download_ids %in% grids_completed$id]
 
-# 6. Execute the deletion
-deleted_count <- sum(file.remove(files_to_delete))
+# # 6. Execute the deletion
+# deleted_count <- sum(file.remove(files_to_delete))
 
-cat("Successfully deleted", deleted_count, "raw tile files.\n")
+# cat("Successfully deleted", deleted_count, "raw tile files.\n")
 
 
 # Option B: Keep only the grids that HAVE NOT been exported
@@ -89,8 +101,10 @@ grids_missing <- grids |>
   filter(!id %in% exported_ids)
 # use this to ensure only 
 # manual 
-target_indices <- 1391:1400 # Replace with 1:nrow(grids) when ready for the full run # 1050 is the current end point 
+target_indices <- 6001:7000 # Replace with 1:nrow(grids) when ready for the full run # 1050 is the current end point 
 # target_indices <- 1:nrow(grids_missing) # Replace with 1:nrow(grids) when ready for the full run # 1050 is the current end point 
+# 1701-completed : 0426
+# 3000 - assumed completed 
 
 
 # Create a master task list of all index/year combinations
@@ -181,6 +195,15 @@ results <- foreach(
 close(pb)
 stopCluster(cl)
 total_runtime <- toc()
+
+# this takes a while to run so might be best to only renders from unique terminal call. 
+# if(FALSE){
+# # export the data 
+# localExportFolder <- "data/naipExports"
+# networkTarget <- "/Volumes/wcnr-network/Research/Ogle/Agroforestry/phase2_sampling/data/raw/mlraF_NAIP"
+# syncToNetwork(localExportFolder = localExportFolder, networkMountPath = networkTarget)
+# }
+
 
 # ---------------------------------------------------------
 # REPORTING
