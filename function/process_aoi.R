@@ -1,6 +1,18 @@
-# primary workflow function for the bluck download process
+process_aoi <- function(
+  aoi_id,
+  target_years,
+  local_dir,
+  db_path,
+  g100_grid,
+  batch_id,
+  p = NULL
+) {
+  # --- 1. JITTER FOR RATE LIMITING ---
+  # Force the worker to sleep for a random time between 1 and 15 seconds.
+  # This perfectly staggers the Planetary Computer API hits.
+  Sys.sleep(runif(1, min = 1, max = 15))
 
-process_aoi <- function(aoi_id, target_years, local_dir, db_path, g100_grid) {
+  # 2. Isolate Terra Temp Directories
   worker_temp <- file.path(tempdir(), paste0("terra_worker_", Sys.getpid()))
   dir.create(worker_temp, showWarnings = FALSE)
   terra::terraOptions(tempdir = worker_temp)
@@ -12,30 +24,53 @@ process_aoi <- function(aoi_id, target_years, local_dir, db_path, g100_grid) {
     add = TRUE
   )
 
-  # 2. Database Connection & Concurrency
+  # 3. Database Connection & Concurrency
   con <- DBI::dbConnect(RSQLite::SQLite(), db_path, synchronous = NULL)
   on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   DBI::dbExecute(con, "PRAGMA busy_timeout = 10000;")
   DBI::dbExecute(con, "PRAGMA journal_mode = WAL;")
 
-  # 3. Check Status
+  # --- 4. SMART RETRY LOGIC ---
   check <- DBI::dbGetQuery(
     con,
-    sprintf("SELECT status FROM aoi_tracker WHERE aoi_id = '%s'", aoi_id)
+    sprintf("SELECT * FROM aoi_tracker WHERE aoi_id = '%s'", aoi_id)
   )
-  if (nrow(check) > 0 && check$status == "Complete") {
-    return("Skipped")
+
+  # Default assumption: process all years, no prior statuses
+  years_to_process <- target_years
+  year_statuses <- list()
+
+  if (nrow(check) > 0) {
+    # Check which specific years succeeded previously
+    y1_ok <- !is.na(check$year_1) &&
+      (check$year_1 == "Success" || grepl("Skipped", check$year_1))
+    y2_ok <- !is.na(check$year_2) &&
+      (check$year_2 == "Success" || grepl("Skipped", check$year_2))
+    y3_ok <- !is.na(check$year_3) &&
+      (check$year_3 == "Success" || grepl("Skipped", check$year_3))
+
+    # If all three are good, we can completely skip this AOI
+    if (y1_ok && y2_ok && y3_ok) {
+      if (!is.null(p)) {
+        p(step = 1, message = sprintf("Skipped (All Complete) %s", aoi_id))
+      }
+      return("Skipped - All Years Complete")
+    }
+
+    # Otherwise, preserve the good statuses and filter the years we actually need to process
+    year_statuses[[target_years[1]]] <- check$year_1
+    year_statuses[[target_years[2]]] <- check$year_2
+    year_statuses[[target_years[3]]] <- check$year_3
+
+    years_to_process <- target_years[!c(y1_ok, y2_ok, y3_ok)]
   }
 
-  # 4. Create Flat Output Directory
+  # 5. Create Flat Output Directory
   aoi_folder <- file.path(local_dir, aoi_id)
   dir.create(aoi_folder, showWarnings = FALSE)
 
-  # Initialize the breadcrumb variable outside the tryCatch
   current_step <- "Fetching AOI Geometry"
-
-  # Safe fetch in case the grid doesn't intersect
   aoi <- tryCatch(
     getAOI(grid100 = g100_grid, id = aoi_id),
     error = function(e) return(NULL)
@@ -45,38 +80,29 @@ process_aoi <- function(aoi_id, target_years, local_dir, db_path, g100_grid) {
     DBI::dbExecute(
       con,
       sprintf(
-        "INSERT OR REPLACE INTO aoi_tracker (aoi_id, status) VALUES ('%s', 'Failed: Missing AOI Geometry')",
-        aoi_id
+        "INSERT OR REPLACE INTO aoi_tracker (aoi_id, batch_id, status) VALUES ('%s', %d, 'Failed: Missing AOI Geometry')",
+        aoi_id,
+        batch_id
       )
     )
+    if (!is.null(p)) {
+      p(step = 1, message = sprintf("Failed Geom %s", aoi_id))
+    }
     return("Failed")
   }
 
-  year_statuses <- list()
-  # moving this out of the year loop so that is it only called once
-  years_available <- getNAIPYear(aoi)
-
-  # 5. Process Years
-  for (target_year in target_years) {
+  # 6. Process ONLY the missing/failed years
+  for (target_year in years_to_process) {
     tryCatch(
       {
         current_step <- "STAC API Query for availability"
+        years_available <- getNAIPYear(aoi)
         actual_year <- target_year
 
-        # remove one year
         if (!target_year %in% years_available) {
           actual_year <- as.character(as.numeric(target_year) - 1)
         }
-        # remove a second year
-        if (!actual_year %in% years_available) {
-          actual_year <- as.character(as.numeric(actual_year) - 1)
-        }
-        # add a year
-        if (!actual_year %in% years_available) {
-          actual_year <- as.character(as.numeric(target_year) + 1)
-        }
 
-        # Hard stop if neither the target year nor the fallback year exists
         if (!actual_year %in% years_available) {
           stop(paste(
             "Neither",
@@ -117,7 +143,6 @@ process_aoi <- function(aoi_id, target_years, local_dir, db_path, g100_grid) {
         }
 
         current_step <- "Merging and exporting 2km NAIP"
-        # explicitly call buffer_only = TRUE
         mergeAndExportNAIP(
           files = naip_files,
           out_path = aoi_folder,
@@ -128,49 +153,65 @@ process_aoi <- function(aoi_id, target_years, local_dir, db_path, g100_grid) {
 
         year_statuses[[target_year]] <- "Success"
 
-        # Clear raster memory and temp files
         file.remove(naip_files)
         terra::tmpFiles(remove = TRUE)
         gc(reset = TRUE, full = TRUE)
       },
       error = function(e) {
-        # Inject the breadcrumb string into the database log
-        year_statuses[[target_year]] <- paste0(
+        # FIX 1: Use <<- to push the error message to the parent environment
+        year_statuses[[target_year]] <<- paste0(
           "Failed at [",
           current_step,
           "]: ",
           e$message
         )
-
         terra::tmpFiles(remove = TRUE)
         gc(reset = TRUE, full = TRUE)
       }
     )
   }
+  # Safely extract the statuses, defaulting to "Failed" if they somehow remained NULL
+  s1 <- if (is.null(year_statuses[[target_years[1]]])) {
+    "Failed"
+  } else {
+    year_statuses[[target_years[1]]]
+  }
+  s2 <- if (is.null(year_statuses[[target_years[2]]])) {
+    "Failed"
+  } else {
+    year_statuses[[target_years[2]]]
+  }
+  s3 <- if (is.null(year_statuses[[target_years[3]]])) {
+    "Failed"
+  } else {
+    year_statuses[[target_years[3]]]
+  }
 
-  # 6. Log Completion
+  # Check if all three years are either Success or safely skipped
+  is_complete <- all(
+    c(s1, s2, s3) %in%
+      c("Success", "Skipped - Exists", "Skipped - All Years Complete")
+  )
+  final_status <- ifelse(is_complete, "Complete", "Partial")
+
+  # 7. Log Completion with the new final_status
   DBI::dbExecute(
     con,
     sprintf(
-      "INSERT OR REPLACE INTO aoi_tracker (aoi_id, year_1, year_2, year_3, status) 
-     VALUES ('%s', '%s', '%s', '%s', 'Complete')",
+      "INSERT OR REPLACE INTO aoi_tracker (aoi_id, batch_id, year_1, year_2, year_3, status) 
+     VALUES ('%s', %d, '%s', '%s', '%s', '%s')",
       aoi_id,
-      if (is.null(year_statuses[[target_years[1]]])) {
-        "NULL"
-      } else {
-        year_statuses[[target_years[1]]]
-      },
-      if (is.null(year_statuses[[target_years[2]]])) {
-        "NULL"
-      } else {
-        year_statuses[[target_years[2]]]
-      },
-      if (is.null(year_statuses[[target_years[3]]])) {
-        "NULL"
-      } else {
-        year_statuses[[target_years[3]]]
-      }
+      batch_id,
+      s1,
+      s2,
+      s3,
+      final_status
     )
   )
-  return("Complete")
+
+  if (!is.null(p)) {
+    p(step = 1, message = sprintf("Finished %s", aoi_id))
+  }
+
+  return(final_status)
 }

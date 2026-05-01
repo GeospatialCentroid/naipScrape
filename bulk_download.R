@@ -60,7 +60,7 @@ dbDisconnect(con)
 # ---------------------------------------------------------
 
 # Setup parallel backend (adjust workers to your CPU, leaving a few free)
-plan(multisession, workers = 20) # 12 worker around ~20gb ram usage
+plan(multisession, workers = 10) # 12 worker around ~20gb ram usage
 #
 
 # Create batches of 50
@@ -71,7 +71,7 @@ aoi_table <- aoi_table |>
 target_years <- c("2012", "2016", "2020")
 unique_batches <- unique(aoi_table$batch_id)
 
-for (current_batch in 1:5) {
+for (current_batch in 1:1) {
   # START OVERALL BATCH TIMER
   tic(paste("Total Time for Batch", current_batch))
 
@@ -94,7 +94,8 @@ for (current_batch in 1:5) {
       target_years = target_years,
       local_dir = batch_folder,
       g100_grid = g100,
-      db_path = db_path
+      db_path = db_path,
+      batch_id = current_batch
     ),
     .progress = TRUE,
     .options = furrr_options(seed = TRUE)
