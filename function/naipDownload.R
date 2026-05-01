@@ -32,14 +32,22 @@ getNAIPYear <- function(aoi) {
   message("Naip is available at the following years")
   print(available_years)
 }
-downloadNAIP_vsi <- function(aoi, year, exportFolder) {
+
+
+downloadNAIP_vsi <- function(aoi, year, exportFolder, buffered = FALSE) {
   
-  # buffer to 500m (Note: comment originally said 2000m, keeping your 500m code)
-  aoi_buffered <- aoi |> 
-    sf::st_buffer(dist = 500)
+  # 1. Handle the buffer parameter
+  if (buffered) {
+    message("Buffering AOI by 500m...")
+    aoi_working <- aoi |> 
+      sf::st_buffer(dist = 500)
+  } else {
+    message("Using original AOI extent without buffering...")
+    aoi_working <- aoi
+  }
   
-  # Create the Lat/Lon bbox for the STAC search
-  bbox_4326 <- aoi_buffered |> 
+  # Create the Lat/Lon bbox for the STAC search using the working AOI
+  bbox_4326 <- aoi_working |> 
     sf::st_transform(crs = 4326) |> 
     sf::st_bbox()
   
@@ -85,7 +93,7 @@ downloadNAIP_vsi <- function(aoi, year, exportFolder) {
     remote_rast <- terra::rast(vsi_path)
     
     # Project our AOI to match the NAIP tile's CRS (usually UTM)
-    aoi_proj <- sf::st_transform(aoi_buffered, crs = terra::crs(remote_rast))
+    aoi_proj <- sf::st_transform(aoi_working, crs = terra::crs(remote_rast))
     
     message("Cropping and downloading area from tile ", i, "...")
     

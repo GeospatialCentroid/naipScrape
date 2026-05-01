@@ -1,29 +1,16 @@
+# functions  --------------------------------------------------------------
 
-mergeAndExportNAIP <- function(files, out_path, aoi, year) {
-  # generates two images 
-  ## one with 200m buffer 
-  ## one strict the naip aoi 
-  
-  # buffer to 500 meters for a 2x2km area 
-  aoi500 <- sf::st_buffer(aoi, dist = 500)
-  
+mergeAndExportNAIP <- function(files, out_path, aoi, year, buffered = FALSE) {
   # get a template rast for CRS information 
   r1 <- terra::rast(files[1])
-  # reprojecthe aoi object
+  
+  # reproject the aoi object
   aoi_proj <- terra::project(terra::vect(aoi), crs(r1))
-  # export for files
-  terra::writeVector(aoi_proj,paste0("data/aoiExports/aoi-",aoi$id,".gpkg"),overwrite = TRUE )
-
-  aoi500_proj <- terra::project(terra::vect(aoi500), crs(r1))
   
+  # export vector boundary
+  terra::writeVector(aoi_proj, paste0("data/aoiExports/aoi-", aoi$id, ".gpkg"), overwrite = TRUE)
   
-  # generate a template raster 1 m
-  temp <- terra::rast(
-    extent = ext(aoi500_proj),
-    crs = crs(aoi500_proj),
-    nlyrs = 4,
-    resolution = 1 # 1 meter
-  )
+  # Load and mosaic the files
   if (length(files) > 1) {
     rast <- purrr::map(.x = files, .f = readAndName) |>
       terra::sprc() |>
@@ -31,23 +18,54 @@ mergeAndExportNAIP <- function(files, out_path, aoi, year) {
   } else {
     rast <- terra::rast(files)
   }
-  # crop and resample
-  m1 <- terra::crop(rast, aoi500_proj) |>
-    terra::resample(
-      temp,
-      method = "bilinear"
-    )|>
-    terra::mask(aoi500_proj)
-  # crop to 1km area 
-  m2 <- terra::crop(m1, aoi_proj) |>
-    terra::mask(aoi_proj)
-  # export data 
-  buffExport <- paste0(out_path,"/buffered_",aoi$id,"_",year, ".tif")
-  kmExport <- paste0(out_path,"/oneKM_",aoi$id,"_",year, ".tif")
-  # write out, 
-  terra::writeRaster(x = m1, buffExport,overwrite = TRUE )
-  terra::writeRaster(x = m2, kmExport,overwrite = TRUE )
   
+  if (buffered) {
+    # buffer to 500 meters for a 2x2km area 
+    aoi500 <- sf::st_buffer(aoi, dist = 500)
+    aoi500_proj <- terra::project(terra::vect(aoi500), crs(r1))
+    
+    # generate a template raster 1 m for the buffered area
+    temp_buff <- terra::rast(
+      extent = ext(aoi500_proj),
+      crs = crs(aoi500_proj),
+      nlyrs = 4,
+      resolution = 1 # 1 meter
+    )
+    
+    # crop, resample, and mask to the 500m buffer
+    m1 <- terra::crop(rast, aoi500_proj) |>
+      terra::resample(temp_buff, method = "bilinear") |>
+      terra::mask(aoi500_proj)
+    
+    # crop down to the 1km area 
+    m2 <- terra::crop(m1, aoi_proj) |>
+      terra::mask(aoi_proj)
+    
+    # export both files 
+    buffExport <- paste0(out_path, "/buffered_", aoi$id, "_", year, ".tif")
+    kmExport <- paste0(out_path, "/oneKM_", aoi$id, "_", year, ".tif")
+    
+    terra::writeRaster(x = m1, buffExport, overwrite = TRUE)
+    terra::writeRaster(x = m2, kmExport, overwrite = TRUE)
+    
+  } else {
+    # generate a template raster 1 m strictly for the 1km area
+    temp_1km <- terra::rast(
+      extent = ext(aoi_proj),
+      crs = crs(aoi_proj),
+      nlyrs = 4,
+      resolution = 1 # 1 meter
+    )
+    
+    # crop, resample, and mask strictly to the 1km area
+    m2 <- terra::crop(rast, aoi_proj) |>
+      terra::resample(temp_1km, method = "bilinear") |>
+      terra::mask(aoi_proj)
+    
+    # export only the 1km file
+    kmExport <- paste0(out_path, "/oneKM_", aoi$id, "_", year, ".tif")
+    terra::writeRaster(x = m2, kmExport, overwrite = TRUE)
+  }
 }
 
 readAndName <- function(path) {
@@ -56,13 +74,11 @@ readAndName <- function(path) {
   return(r1)
 }
 
-
-
 mergeAndExportLidar<- function(files, out_path, aoi) {
   # generates one image crop to the 1km areas 
   # get a template rast for CRS information 
   r1 <- terra::rast(files[1])
-  # reprojecthe aoi object
+  # reproject the aoi object
   aoi_proj <- terra::project(terra::vect(aoi), crs(r1))
   
   # generate a template 
@@ -92,8 +108,6 @@ mergeAndExportLidar<- function(files, out_path, aoi) {
   terra::writeRaster(x = m1, dsm_Export, overwrite = TRUE)
   
 }
-
-
 
 # compile data for export 
 copyToExport <- function(id,year){

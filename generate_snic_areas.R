@@ -42,7 +42,7 @@ sf::st_area(mlra76)
 qtm(mlra76)
 
 # generate random points within the mlra objec 
-samplePoints <- st_sample(mlra76, size = 15, type = "random")
+samplePoints <- st_sample(mlra76, size = 50, type = "random")
 # parse out lat long 
 pointsDF <- samplePoints |> 
   st_as_sf() |>
