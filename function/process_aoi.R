@@ -53,17 +53,27 @@ process_aoi <- function(aoi_id, target_years, local_dir, db_path, g100_grid) {
   }
 
   year_statuses <- list()
+  # moving this out of the year loop so that is it only called once
+  years_available <- getNAIPYear(aoi)
 
   # 5. Process Years
   for (target_year in target_years) {
     tryCatch(
       {
         current_step <- "STAC API Query for availability"
-        years_available <- getNAIPYear(aoi)
         actual_year <- target_year
 
+        # remove one year
         if (!target_year %in% years_available) {
           actual_year <- as.character(as.numeric(target_year) - 1)
+        }
+        # remove a second year
+        if (!actual_year %in% years_available) {
+          actual_year <- as.character(as.numeric(actual_year) - 1)
+        }
+        # add a year
+        if (!actual_year %in% years_available) {
+          actual_year <- as.character(as.numeric(target_year) + 1)
         }
 
         # Hard stop if neither the target year nor the fallback year exists

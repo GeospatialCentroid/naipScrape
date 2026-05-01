@@ -60,7 +60,7 @@ dbDisconnect(con)
 # ---------------------------------------------------------
 
 # Setup parallel backend (adjust workers to your CPU, leaving a few free)
-plan(multisession, workers = 12) # 12 worker around ~20gb ram usage
+plan(multisession, workers = 20) # 12 worker around ~20gb ram usage
 #
 
 # Create batches of 50
@@ -71,7 +71,7 @@ aoi_table <- aoi_table |>
 target_years <- c("2012", "2016", "2020")
 unique_batches <- unique(aoi_table$batch_id)
 
-for (current_batch in 1:1) {
+for (current_batch in 1:5) {
   # START OVERALL BATCH TIMER
   tic(paste("Total Time for Batch", current_batch))
 
@@ -104,35 +104,34 @@ for (current_batch in 1:1) {
   toc()
 
   # ---------------------------------------------------------
-  # 5. ZIPPING & NETWORK TRANSFER
+  # 5. DIRECTORY TRANSFER (NO ZIPPING)
   # ---------------------------------------------------------
 
   # START NETWORK TRANSFER TIMER
-  tic("Zipping and Network Transfer")
+  tic("Network Transfer (Raw Directory)")
 
-  zip_name <- paste0(batch_folder_name, ".zip")
-  zip_path_network <- file.path(network_storage_dir, zip_name)
+  cat("\n  [->] Transferring raw directory via rsync...\n")
 
-  original_wd <- getwd()
-  setwd(local_working_dir)
-  zip(zipfile = zip_name, files = batch_folder_name, flags = "-r9Xq")
-  setwd(original_wd)
-
-  zip_path_local <- file.path(local_working_dir, zip_name)
-
+  # Transfer via system rsync directly to the network storage dir
+  # Note: No trailing slash on batch_folder ensures the directory itself is copied
   transfer_status <- system2(
     "rsync",
     args = c(
       "-avW",
       "--remove-source-files",
-      zip_path_local,
+      "--bwlimit=400M",
+      batch_folder,
       network_storage_dir
     ),
-    stdout = FALSE, # Silences the rsync output in the console
+    stdout = FALSE,
     stderr = FALSE
   )
 
   if (transfer_status == 0) {
+    cat("  [✓] Batch", current_batch, "successfully transferred to network.\n")
+
+    # Note: rsync's '--remove-source-files' deletes the files but leaves the empty
+    # directory tree intact on the local drive. We use unlink to wipe the empty folders.
     unlink(batch_folder, recursive = TRUE)
   } else {
     warning(
