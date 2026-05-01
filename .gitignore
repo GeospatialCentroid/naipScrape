@@ -51,3 +51,6 @@ documentation/fileTransfer.html
 # --- OS Specific ---
 .DS_Store
 Thumbs.db
+
+# Ignore local network mounts
+mnt/

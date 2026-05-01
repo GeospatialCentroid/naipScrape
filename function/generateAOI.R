@@ -1,4 +1,3 @@
-
 # generate the a grid object  --------------------------------------------------
 ## currently duplicated from the preprocessingFunction.R
 buildGrids <- function(extent_object, cell_size) {
@@ -32,27 +31,27 @@ buildSubGrids <- function(grids, cell_size, aoi) {
     dplyr::bind_rows()
   # apply the filter again --
   subGrids <- subGrids[aoi, ]
-  
+
   return(subGrids)
 }
 
 getAOI <- function(grid100, point = FALSE, id = FALSE) {
   # condition for setting input type to test
   if (!isFALSE(point)) {
-    message("Grabing aoi based on lat lon value ")
+    # message("Grabing aoi based on lat lon value ")
     # generate a point object and convert to albert equal area
     pointFeature <- sf::st_point(point) |>
       sf::st_sfc(crs = "EPSG:4326") |>
       st_transform(crs = "EPSG:5070")
-    
+
     # intersect with 100km grid
     gid <- grid100[pointFeature, ] |>
       as.data.frame() |>
       dplyr::pull("id")
-    
+
     # 100k grid
     g1 <- grid100[grid100$id == gid, ]
-    
+
     ### it be worth building this into a specific function.
     # to get the specific id for the grids I need to generate the full set ( 50,10,2,1)
     # filter and generate to new area 50k
@@ -66,9 +65,9 @@ getAOI <- function(grid100, point = FALSE, id = FALSE) {
     # export the 1km grid feature
     return(t4)
   }
-  
+
   if (!isFALSE(id)) {
-    message("Grabing aoi based on ID")
+    # message("Grabing aoi based on ID")
     # parse out the id to the specific geographies
     feat_names <- c("id100", "id50", "id10", "id2", "id1")
     # parse out string and apply names
@@ -81,7 +80,7 @@ getAOI <- function(grid100, point = FALSE, id = FALSE) {
     id10 <- paste(id50, ids[3], sep = "-")
     id2 <- paste(id10, ids[4], sep = "-")
     id1 <- paste(id2, ids[5], sep = "-")
-    
+
     # select 100k grid
     g1 <- grid100 |>
       dplyr::filter(id == id100)
