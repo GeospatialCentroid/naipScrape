@@ -34,7 +34,8 @@ process_aoi <- function(
   # --- 4. SMART RETRY LOGIC ---
   check <- DBI::dbGetQuery(
     con,
-    sprintf("SELECT * FROM aoi_tracker WHERE aoi_id = '%s'", aoi_id)
+    "SELECT * FROM aoi_tracker WHERE aoi_id = ?",
+    params = list(aoi_id)
   )
 
   # Default assumption: process all years, no prior statuses
@@ -79,11 +80,8 @@ process_aoi <- function(
   if (is.null(aoi)) {
     DBI::dbExecute(
       con,
-      sprintf(
-        "INSERT OR REPLACE INTO aoi_tracker (aoi_id, batch_id, status) VALUES ('%s', %d, 'Failed: Missing AOI Geometry')",
-        aoi_id,
-        batch_id
-      )
+      "INSERT OR REPLACE INTO aoi_tracker (aoi_id, batch_id, status) VALUES (?, ?, 'Failed: Missing AOI Geometry')",
+      params = list(aoi_id, batch_id)
     )
     if (!is.null(p)) {
       p(step = 1, message = sprintf("Failed Geom %s", aoi_id))
@@ -123,12 +121,35 @@ process_aoi <- function(
           next
         }
 
+        # --- PAUSE & RETRY LOGIC ---
         current_step <- paste("Downloading VSI tiles for", actual_year)
-        downloadNAIP_vsi(
-          aoi = aoi,
-          year = actual_year,
-          exportFolder = worker_temp
-        )
+
+        max_retries <- 3
+        retry_count <- 0
+        download_success <- FALSE
+
+        while (!download_success && retry_count < max_retries) {
+          tryCatch(
+            {
+              downloadNAIP_vsi(
+                aoi = aoi,
+                year = actual_year,
+                exportFolder = worker_temp
+              )
+              download_success <- TRUE # If it gets here, it worked!
+            },
+            error = function(api_err) {
+              retry_count <<- retry_count + 1
+              if (retry_count < max_retries) {
+                # Pause for 15 to 45 seconds to let the Planetary Computer API cool down
+                Sys.sleep(runif(1, min = 15, max = 45))
+              } else {
+                # If we failed 3 times, pass the error up to the main tryCatch to fail the year
+                stop(paste("API Timeout after 3 attempts:", api_err$message))
+              }
+            }
+          )
+        }
 
         current_step <- "Regex gathering downloaded raw tiles"
         naip_string <- paste0("^naip_", actual_year, ".*", aoi_id, ".*\\.tif$")
@@ -197,16 +218,8 @@ process_aoi <- function(
   # 7. Log Completion with the new final_status
   DBI::dbExecute(
     con,
-    sprintf(
-      "INSERT OR REPLACE INTO aoi_tracker (aoi_id, batch_id, year_1, year_2, year_3, status) 
-     VALUES ('%s', %d, '%s', '%s', '%s', '%s')",
-      aoi_id,
-      batch_id,
-      s1,
-      s2,
-      s3,
-      final_status
-    )
+    "INSERT OR REPLACE INTO aoi_tracker (aoi_id, batch_id, year_1, year_2, year_3, status) VALUES (?, ?, ?, ?, ?, ?)",
+    params = list(aoi_id, batch_id, s1, s2, s3, final_status)
   )
 
   if (!is.null(p)) {
