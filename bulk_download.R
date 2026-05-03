@@ -15,8 +15,7 @@ pacman::p_load(
   tmap,
   tictoc
 )
-# testing spatail objects
-tmap_mode(mode = "view")
+
 
 # ---------------------------------------------------------
 # 1. SETUP & DIRECTORIES
@@ -61,7 +60,7 @@ dbDisconnect(con)
 # ---------------------------------------------------------
 
 # Setup parallel backend (adjust workers to your CPU, leaving a few free)
-plan(multisession, workers = 8) # 12 worker around ~20gb ram usage
+plan(multisession, workers = 12) # 12 worker around ~20gb ram usage
 #
 
 # Create batches of 50
@@ -72,7 +71,7 @@ aoi_table <- aoi_table |>
 target_years <- c("2012", "2016", "2020")
 unique_batches <- unique(aoi_table$batch_id)
 
-for (current_batch in 5:10) {
+for (current_batch in 11:11) {
   # START OVERALL BATCH TIMER
   tic(paste("Total Time for Batch", current_batch))
 
@@ -110,7 +109,7 @@ for (current_batch in 5:10) {
   # 5. DIRECTORY TRANSFER (NO ZIPPING)
   # ---------------------------------------------------------
 
-  # # START NETWORK TRANSFER TIMER
+  # START NETWORK TRANSFER TIMER
   tic("Network Transfer (Raw Directory)")
 
   cat("\n  [->] Transferring raw directory via rsync...\n")

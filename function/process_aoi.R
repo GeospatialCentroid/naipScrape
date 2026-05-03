@@ -11,7 +11,7 @@ process_aoi <- function(
   # --- 1. JITTER FOR RATE LIMITING ---
   # Force the worker to sleep for a random time between 1 and 15 seconds.
   # This perfectly staggers the Planetary Computer API hits.
-  Sys.sleep(runif(1, min = 1, max = 15))
+  # Sys.sleep(runif(1, min = 1, max = 15)) # turning if off to see if I hit any issues without
 
   # 2. Isolate Terra Temp Directories
   worker_temp <- file.path(tempdir(), paste0("terra_worker_", Sys.getpid()))
@@ -113,61 +113,44 @@ process_aoi <- function(
   for (target_year in years_to_process) {
     tryCatch(
       {
-        # --- NEW PRE-CHECK (NO API NEEDED) ---
-        current_step <- "Pre-checking if 2km export already exists locally or on network"
-
-        fallback_year <- as.character(as.numeric(target_year) - 1)
-
-        loc_target <- file.path(
-          aoi_folder,
-          paste0("naip_2km_", aoi_id, "_", target_year, ".tif")
-        )
-        loc_fallback <- file.path(
-          aoi_folder,
-          paste0("naip_2km_", aoi_id, "_", fallback_year, ".tif")
-        )
-
-        net_target <- file.path(
-          network_dir,
-          paste0("naip_batch_", batch_id),
-          aoi_id,
-          paste0("naip_2km_", aoi_id, "_", target_year, ".tif")
-        )
-        net_fallback <- file.path(
-          network_dir,
-          paste0("naip_batch_", batch_id),
-          aoi_id,
-          paste0("naip_2km_", aoi_id, "_", fallback_year, ".tif")
-        )
-
-        if (
-          file.exists(loc_target) ||
-            file.exists(loc_fallback) ||
-            file.exists(net_target) ||
-            file.exists(net_fallback)
-        ) {
-          year_statuses[[target_year]] <- "Skipped - Exists"
-          next
-        }
-
         # --- IF NOT SKIPPED, PROCEED TO API QUERY ---
         current_step <- "STAC API Query for availability"
-        years_available <- getNAIPYear(aoi)
-        actual_year <- target_year
 
-        if (!target_year %in% years_available) {
-          actual_year <- fallback_year
+        # 1. Gather all available years
+        years_available <- getNAIPYear(aoi)
+
+        # Define the exact testing hierarchy
+        target_num <- as.numeric(target_year)
+        preferred_years <- as.character(c(
+          target_num, # 2. Test initial year (e.g., 2012)
+          target_num - 1, # 3. Move one year down (e.g., 2011)
+          target_num - 2, # 4. Move two years down (e.g., 2010)
+          target_num + 1 # 5. Move one year up (e.g., 2013)
+        ))
+
+        actual_year <- NULL
+
+        # Check each year in our preferred order
+        for (test_year in preferred_years) {
+          if (test_year %in% years_available) {
+            actual_year <- test_year
+            break # Match found! Exit this search loop immediately.
+          }
         }
 
-        if (!actual_year %in% years_available) {
-          stop(paste(
-            "Neither",
+        # 6. Cancel attempt and log to SQL if no imagery was found
+        if (is.null(actual_year)) {
+          stop(sprintf(
+            "Target %s not found. Fallbacks (%s, %s, %s) also completely missing from Planetary Computer.",
             target_year,
-            "nor fallback",
-            actual_year,
-            "exist in Planetary Computer."
+            preferred_years[2],
+            preferred_years[3],
+            preferred_years[4]
           ))
         }
+
+        # --- PAUSE & RETRY LOGIC ---
+        current_step <- paste("Downloading VSI tiles for", actual_year)
 
         # --- PAUSE & RETRY LOGIC ---
         current_step <- paste("Downloading VSI tiles for", actual_year)
