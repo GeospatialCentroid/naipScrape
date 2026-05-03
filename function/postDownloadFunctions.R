@@ -1,27 +1,53 @@
+# 1. Update the helper function to force a CRS match
+readAndName <- function(path, target_crs) {
+  r1 <- terra::rast(path)
+  names(r1) <- c("red", "green", "blue", "nir")
+
+  # If the tile's CRS doesn't match our master CRS, project it on the fly
+  if (terra::crs(r1) != target_crs) {
+    r1 <- terra::project(r1, target_crs)
+  }
+
+  return(r1)
+}
+
 mergeAndExportNAIP <- function(files, out_path, aoi, year, buffer_only = TRUE) {
   # Buffer to 500 meters for a 2x2km area
   aoi500 <- sf::st_buffer(aoi, dist = 500)
 
   # Get a template rast for CRS information
   r1 <- terra::rast(files[1])
-  aoi_proj <- terra::project(terra::vect(aoi), crs(r1))
+  master_crs <- terra::crs(r1) # Define the master CRS based on the first tile
+  aoi_proj <- terra::project(terra::vect(aoi), master_crs)
 
-  # Export the 1km vector geometry so you can reproduce the strict crop later
+  # Export the 1km vector geometry...
   terra::writeVector(
     aoi_proj,
     file.path(out_path, paste0("aoi-", aoi$id, ".gpkg")),
     overwrite = TRUE
   )
 
-  aoi500_proj <- terra::project(terra::vect(aoi500), crs(r1))
+  aoi500_proj <- terra::project(terra::vect(aoi500), master_crs)
 
   # Generate a template raster (1m resolution)
   temp <- terra::rast(
     extent = ext(aoi500_proj),
-    crs = crs(aoi500_proj),
+    crs = master_crs,
     nlyrs = 4,
     resolution = 1
   )
+
+  # 2. Update the mosaic block to pass the master_crs to the helper function
+  if (length(files) > 1) {
+    rast <- purrr::map(
+      .x = files,
+      ~ readAndName(.x, target_crs = master_crs)
+    ) |>
+      terra::sprc() |>
+      terra::mosaic(fun = "mean")
+  } else {
+    rast <- terra::rast(files)
+  }
 
   if (length(files) > 1) {
     rast <- purrr::map(.x = files, .f = readAndName) |>

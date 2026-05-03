@@ -22,7 +22,7 @@ tmap_mode(mode = "view")
 # 1. SETUP & DIRECTORIES
 # ---------------------------------------------------------
 aoi_table <- read.csv("data/LRR_sampleGrids/LRR_F_selectedSample.csv")
-local_working_dir <- "mnt/fileShare/NAIP"
+local_working_dir <- "data/processing_batches"
 network_storage_dir <- "mnt/fileShare/NAIP" # Update to your mount path
 
 dir.create(local_working_dir, showWarnings = FALSE, recursive = TRUE)
@@ -72,7 +72,7 @@ aoi_table <- aoi_table |>
 target_years <- c("2012", "2016", "2020")
 unique_batches <- unique(aoi_table$batch_id)
 
-for (current_batch in 4:28) {
+for (current_batch in 5:10) {
   # START OVERALL BATCH TIMER
   tic(paste("Total Time for Batch", current_batch))
 
@@ -96,7 +96,8 @@ for (current_batch in 4:28) {
       local_dir = batch_folder,
       g100_grid = g100,
       db_path = db_path,
-      batch_id = current_batch
+      batch_id = current_batch,
+      network_dir = network_storage_dir
     ),
     .progress = TRUE,
     .options = furrr_options(seed = TRUE)
@@ -110,41 +111,41 @@ for (current_batch in 4:28) {
   # ---------------------------------------------------------
 
   # # START NETWORK TRANSFER TIMER
-  # tic("Network Transfer (Raw Directory)")
+  tic("Network Transfer (Raw Directory)")
 
-  # cat("\n  [->] Transferring raw directory via rsync...\n")
+  cat("\n  [->] Transferring raw directory via rsync...\n")
 
-  # # Transfer via system rsync directly to the network storage dir
-  # # Note: No trailing slash on batch_folder ensures the directory itself is copied
-  # transfer_status <- system2(
-  #   "rsync",
-  #   args = c(
-  #     "-avW",
-  #     # "--remove-source-files", # seems like it ran but didn't not present so
-  #     "--bwlimit=400M",
-  #     batch_folder,
-  #     network_storage_dir
-  #   ),
-  #   stdout = FALSE,
-  #   stderr = FALSE
-  # )
+  # Transfer via system rsync directly to the network storage dir
+  # Note: No trailing slash on batch_folder ensures the directory itself is copied
+  transfer_status <- system2(
+    "rsync",
+    args = c(
+      "-avW",
+      "--remove-source-files", # seems like it ran but didn't not present so
+      "--bwlimit=700M",
+      batch_folder,
+      network_storage_dir
+    ),
+    # stdout = FALSE,
+    # stderr = FALSE
+  )
 
-  # if (transfer_status == 0) {
-  #   cat("  [✓] Batch", current_batch, "successfully transferred to network.\n")
+  if (transfer_status == 0) {
+    cat("  [✓] Batch", current_batch, "successfully transferred to network.\n")
 
-  #   # Note: rsync's '--remove-source-files' deletes the files but leaves the empty
-  #   # directory tree intact on the local drive. We use unlink to wipe the empty folders.
-  #   unlink(batch_folder, recursive = TRUE)
-  # } else {
-  #   warning(
-  #     "Transfer failed for Batch ",
-  #     current_batch,
-  #     ". Local files retained."
-  #   )
-  # }
+    # Note: rsync's '--remove-source-files' deletes the files but leaves the empty
+    # directory tree intact on the local drive. We use"data/processing_batches/naip_batch_4/1935-2-4-16-4" unlink to wipe the empty folders.
+    unlink(batch_folder, recursive = TRUE)
+  } else {
+    warning(
+      "Transfer failed for Batch ",
+      current_batch,
+      ". Local files retained."
+    )
+  }
 
   # END NETWORK TRANSFER TIMER
-  # toc()
+  toc()
 
   # END OVERALL BATCH TIMER
   toc()
