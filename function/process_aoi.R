@@ -108,6 +108,8 @@ process_aoi <- function(
     }
     return("Failed")
   }
+  # Gather all available years
+  years_available <- getNAIPYear(aoi)
 
   # 6. Process ONLY the missing/failed years
   for (target_year in years_to_process) {
@@ -115,9 +117,6 @@ process_aoi <- function(
       {
         # --- IF NOT SKIPPED, PROCEED TO API QUERY ---
         current_step <- "STAC API Query for availability"
-
-        # 1. Gather all available years
-        years_available <- getNAIPYear(aoi)
 
         # Define the exact testing hierarchy
         target_num <- as.numeric(target_year)
@@ -148,9 +147,6 @@ process_aoi <- function(
             preferred_years[4]
           ))
         }
-
-        # --- PAUSE & RETRY LOGIC ---
-        current_step <- paste("Downloading VSI tiles for", actual_year)
 
         # --- PAUSE & RETRY LOGIC ---
         current_step <- paste("Downloading VSI tiles for", actual_year)
@@ -275,6 +271,7 @@ process_aoi <- function(
           Sys.sleep(runif(1, min = 1, max = 3))
           retries <<- retries + 1
         } else {
+          "data/processing_batches/naip_batch_5/1936-2-a-6-3"
           stop(e)
         }
       }

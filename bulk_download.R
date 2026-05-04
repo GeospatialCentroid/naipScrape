@@ -60,7 +60,7 @@ dbDisconnect(con)
 # ---------------------------------------------------------
 
 # Setup parallel backend (adjust workers to your CPU, leaving a few free)
-plan(multisession, workers = 12) # 12 worker around ~20gb ram usage
+plan(multisession, workers = 25) # 12 worker around ~20gb ram usage
 #
 
 # Create batches of 50
@@ -71,7 +71,7 @@ aoi_table <- aoi_table |>
 target_years <- c("2012", "2016", "2020")
 unique_batches <- unique(aoi_table$batch_id)
 
-for (current_batch in 11:11) {
+for (current_batch in 15:15) {
   # START OVERALL BATCH TIMER
   tic(paste("Total Time for Batch", current_batch))
 
@@ -120,7 +120,7 @@ for (current_batch in 11:11) {
     "rsync",
     args = c(
       "-avW",
-      "--remove-source-files", # seems like it ran but didn't not present so
+      # "--remove-source-files", # seems like it ran but didn't not present so
       "--bwlimit=700M",
       batch_folder,
       network_storage_dir
@@ -134,7 +134,7 @@ for (current_batch in 11:11) {
 
     # Note: rsync's '--remove-source-files' deletes the files but leaves the empty
     # directory tree intact on the local drive. We use"data/processing_batches/naip_batch_4/1935-2-4-16-4" unlink to wipe the empty folders.
-    unlink(batch_folder, recursive = TRUE)
+    # unlink(batch_folder, recursive = TRUE)
   } else {
     warning(
       "Transfer failed for Batch ",

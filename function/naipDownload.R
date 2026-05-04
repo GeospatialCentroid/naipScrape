@@ -1,22 +1,53 @@
-# functions  --------------------------------------------------------------
-
 getNAIPYear <- function(aoi) {
   # prep aoi object
   bbox <- aoi |>
-    st_transform(crs = "EPSG:4326") |>
+    sf::st_transform(crs = "EPSG:4326") |>
     sf::st_bbox()
+
   # Connect to STAC API
   stac_endpoint <- "https://planetarycomputer.microsoft.com/api/stac/v1"
   con <- rstac::stac(stac_endpoint)
-  # see what comes ups
-  # message("pulled results from the specific aoi.")
-  search_results <- con |>
-    rstac::stac_search(
-      collections = "naip",
-      bbox = bbox,
-      limit = 200 # A high limit to get all records
-    ) |>
-    rstac::get_request() # Execute the search
+
+  # --- NEW PAUSE & RETRY LOGIC ---
+  max_retries <- 3
+  retry_count <- 0
+  request_success <- FALSE
+  search_results <- NULL
+
+  while (!request_success && retry_count < max_retries) {
+    tryCatch(
+      {
+        search_results <- con |>
+          rstac::stac_search(
+            collections = "naip",
+            bbox = bbox,
+            limit = 200 # A high limit to get all records
+          ) |>
+          rstac::get_request() # Execute the search
+
+        request_success <- TRUE # If we get here without an error, it worked!
+      },
+      error = function(e) {
+        retry_count <<- retry_count + 1
+        if (retry_count < max_retries) {
+          message(sprintf(
+            "STAC API 'text/plain' Error. Waiting 10 seconds to retry (Attempt %d of %d)...",
+            retry_count,
+            max_retries
+          ))
+          Sys.sleep(10)
+        } else {
+          stop(sprintf(
+            "STAC API failed after %d attempts. Original error: %s",
+            max_retries,
+            e$message
+          ))
+        }
+      }
+    )
+  }
+  # -------------------------------
+
   if (length(search_results$features) == 0) {
     stop("No NAIP imagery found for the specified AOI.")
   }
@@ -27,16 +58,16 @@ getNAIPYear <- function(aoi) {
   all_years_str <- substr(all_datetimes, 1, 4)
   # return only unique values
   available_years <- sort(unique(all_years_str))
-  ## 5. Show Results
-  # message("Query complete.")
-  # message("Naip is available at the following years")
-  print(available_years)
+
+  return(available_years)
 }
 
 # aoi <- getAOI(grid100 = grid100, id = "1415-3-12-4-1")
 # year <- "2020"
 # exportFolder <- "temp/mp_testing/"
 downloadNAIP_vsi <- function(aoi, year, exportFolder) {
+  Sys.setenv(GDAL_HTTP_RETRY = "YES")
+  Sys.setenv(GDAL_HTTP_MAX_RETRIES = "4")
   # buffer to 2000m
   aoi_buffered <- aoi |>
     sf::st_buffer(dist = 500)
@@ -54,7 +85,7 @@ downloadNAIP_vsi <- function(aoi, year, exportFolder) {
       collections = "naip",
       bbox = bbox_4326,
       datetime = paste0(year, "-01-01T00:00:00Z/", year, "-12-31T23:59:59Z"),
-      limit = 10
+      limit = 100
     ) |>
     rstac::get_request() |>
     rstac::items_sign(rstac::sign_planetary_computer())

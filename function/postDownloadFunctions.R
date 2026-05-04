@@ -49,14 +49,6 @@ mergeAndExportNAIP <- function(files, out_path, aoi, year, buffer_only = TRUE) {
     rast <- terra::rast(files)
   }
 
-  if (length(files) > 1) {
-    rast <- purrr::map(.x = files, .f = readAndName) |>
-      terra::sprc() |>
-      terra::mosaic(fun = "mean")
-  } else {
-    rast <- terra::rast(files)
-  }
-
   # Crop, resample, and mask to the 2km buffered area
   m1 <- terra::crop(rast, aoi500_proj) |>
     terra::resample(temp, method = "bilinear") |>
@@ -80,11 +72,6 @@ mergeAndExportNAIP <- function(files, out_path, aoi, year, buffer_only = TRUE) {
     )
     terra::writeRaster(x = m2, export_1km, overwrite = TRUE)
   }
-}
-readAndName <- function(path) {
-  r1 <- terra::rast(path)
-  names(r1) <- c("red", "green", "blue", "nir")
-  return(r1)
 }
 
 
