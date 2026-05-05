@@ -8,8 +8,8 @@ getNAIPYear <- function(aoi) {
   stac_endpoint <- "https://planetarycomputer.microsoft.com/api/stac/v1"
   con <- rstac::stac(stac_endpoint)
 
-  # --- NEW PAUSE & RETRY LOGIC ---
-  max_retries <- 3
+  # --- EXPONENTIAL BACKOFF RETRY LOGIC ---
+  max_retries <- 10
   retry_count <- 0
   request_success <- FALSE
   search_results <- NULL
@@ -30,12 +30,15 @@ getNAIPYear <- function(aoi) {
       error = function(e) {
         retry_count <<- retry_count + 1
         if (retry_count < max_retries) {
+          # Progressive wait: 10s, 20s, 30s, 40s...
+          wait_time <- 10 * retry_count
           message(sprintf(
-            "STAC API 'text/plain' Error. Waiting 10 seconds to retry (Attempt %d of %d)...",
+            "STAC API Server Overloaded. Waiting %d seconds to retry (Attempt %d of %d)...",
+            wait_time,
             retry_count,
             max_retries
           ))
-          Sys.sleep(10)
+          Sys.sleep(wait_time)
         } else {
           stop(sprintf(
             "STAC API failed after %d attempts. Original error: %s",

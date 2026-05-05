@@ -20,7 +20,7 @@ pacman::p_load(
 # ---------------------------------------------------------
 # 1. SETUP & DIRECTORIES
 # ---------------------------------------------------------
-aoi_table <- read.csv("data/LRR_sampleGrids/LRR_F_selectedSample.csv")
+aoi_table <- read.csv("data/LRR_sampleGrids/selectedSample_lrr_F_05_2026.csv")
 local_working_dir <- "data/processing_batches"
 network_storage_dir <- "mnt/fileShare/NAIP" # Update to your mount path
 
@@ -71,7 +71,7 @@ aoi_table <- aoi_table |>
 target_years <- c("2012", "2016", "2020")
 unique_batches <- unique(aoi_table$batch_id)
 
-for (current_batch in 15:15) {
+for (current_batch in 1:28) {
   # START OVERALL BATCH TIMER
   tic(paste("Total Time for Batch", current_batch))
 
@@ -86,6 +86,7 @@ for (current_batch in 15:15) {
 
   # START IMAGE PROCESSING TIMER
   tic("Image Processing (Furrr)")
+  "data/LRR_sampleGrids"
 
   results <- future_map(
     batch_data$id,
