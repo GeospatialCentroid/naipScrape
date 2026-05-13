@@ -94,7 +94,7 @@ aoi_table <- aoi_table |>
 target_years <- c("2012", "2016", "2020")
 unique_batches <- unique(aoi_table$batch_id)
 
-for (current_batch in seq_along(unique_batches)) {  
+for (current_batch in seq_along(unique_batches)) {  #
   # START OVERALL BATCH TIMER
   tic(paste("Total Time for Batch", current_batch))
   
