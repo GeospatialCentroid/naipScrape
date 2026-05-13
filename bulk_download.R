@@ -16,44 +16,44 @@ pacman::p_load(
   tictoc
 )
 
-
 # ---------------------------------------------------------
 # 1. SETUP & DIRECTORIES
 # ---------------------------------------------------------
+# Source functions first so get_env_config() is available
+lapply(list.files(path = "function", pattern = ".R", full.names = TRUE), source)
+
+# TOGGLE ENVIRONMENT HERE (TRUE = MacBook via Tailscale | FALSE = Ubuntu VM via 10G)
+# Update the Tailscale IP to match your TrueNAS Tailscale address
+env_config <- get_env_config(MAC = TRUE) 
+
+message(sprintf("Initializing in %s mode...", env_config$os_env))
+
 aoi_table <- read.csv("data/LRR_sampleGrids/selectedSample_lrr_F_05_2026.csv")
 local_working_dir <- "data/processing_batches"
-network_storage_dir <- "mnt/fileShare/NAIP" # Update to your mount path
-
 dir.create(local_working_dir, showWarnings = FALSE, recursive = TRUE)
-
-# source functions
-lapply(list.files(path = "function", pattern = ".R", full.names = TRUE), source)
 
 # establish grid features
 g100 <- sf::st_read("data/grid100km_aea.gpkg")
 
-mount_point <- "/home/dune/trueNAS/work/naipScrape/mnt/fileShare"
-
 # Check if the mount point appears in the list of currently mounted drives
-is_mounted <- any(grepl(mount_point, system("mount", intern = TRUE)))
+is_mounted <- any(grepl(env_config$mount_point, system("mount", intern = TRUE)))
 
 if (!is_mounted) {
   message("Connecting to TrueNAS network drive...")
   
-  # The command to run
-  # Note: See the steps below on how to handle the 'sudo' password
-  cmd <- "sudo mount -t cifs -o guest,uid=$(id -u),gid=$(id -g) //192.168.20.101/fileShare /home/dune/trueNAS/work/naipScrape/mnt/fileShare"
-  
-  # Execute the command
-  exit_status <- system(cmd)
+  # Execute the OS-specific mount command
+  exit_status <- system(env_config$mount_cmd)
   
   if (exit_status != 0) {
-    stop("Failed to mount the network drive. Check your permissions and network connection.")
+    stop("Failed to mount the network drive. Check your permissions, VPN connection, and paths.")
   }
   message("Drive mounted successfully.")
 } else {
   message("TrueNAS drive is already mounted. Proceeding...")
 }
+
+# Ensure the target NAIP directory exists on the network drive
+dir.create(env_config$network_storage_dir, showWarnings = FALSE, recursive = TRUE)
 
 # ---------------------------------------------------------
 # 2. SQLITE DATABASE INITIALIZATION
@@ -78,14 +78,13 @@ dbExecute(
 )
 dbDisconnect(con)
 
-#
 # ---------------------------------------------------------
-# 4. EXECUTION: BATCHING & FURRR
+# 3. EXECUTION: BATCHING & FURRR
 # ---------------------------------------------------------
 
-# Setup parallel backend (adjust workers to your CPU, leaving a few free)
-plan(multisession, workers = 28) # 12 worker around ~20gb ram usage
-#
+# Setup parallel backend dynamically based on OS config
+plan(multisession, workers = env_config$workers)
+message(sprintf("Parallel workers set to: %s", env_config$workers))
 
 # Create batches of 50
 batch_size <- 50
@@ -107,11 +106,8 @@ for (current_batch in seq_along(unique_batches)) {
   batch_data <- aoi_table |> 
     filter(batch_id == current_batch) |>
     mutate(
-      # Assuming process_aoi() creates a directory named after the ID.
-      # If it outputs a specific file, change dir.exists() to file.exists() 
-      # and append the extension to the paths (e.g., paste0(id, ".tif")).
       local_path = file.path(batch_folder, id),
-      network_path = file.path(network_storage_dir, batch_folder_name, id),
+      network_path = file.path(env_config$network_storage_dir, batch_folder_name, id),
       is_processed = dir.exists(local_path) | dir.exists(network_path)
     )
   
@@ -134,7 +130,7 @@ for (current_batch in seq_along(unique_batches)) {
         g100_grid = g100,
         db_path = db_path,
         batch_id = current_batch,
-        network_dir = network_storage_dir
+        network_dir = env_config$network_storage_dir
       ),
       .progress = TRUE,
       .options = furrr_options(seed = TRUE)
@@ -147,7 +143,7 @@ for (current_batch in seq_along(unique_batches)) {
   }
   
   # ---------------------------------------------------------
-  # 5. DIRECTORY TRANSFER & CLEANUP
+  # 4. DIRECTORY TRANSFER & CLEANUP
   # ---------------------------------------------------------
   
   # Only trigger rsync if there is actually data inside the local batch folder
@@ -155,22 +151,20 @@ for (current_batch in seq_along(unique_batches)) {
     
     # START NETWORK TRANSFER TIMER
     tic("Network Transfer (Raw Directory)")
-    cat("\n  [->] Transferring raw directory via rsync...\n")
+    cat(sprintf("\n  [->] Transferring via rsync (Bandwidth limit: %s)...\n", env_config$bwlimit))
     
     transfer_status <- system2(
       "rsync",
       args = c(
         "-avW",
-        "--bwlimit=700M", # Capping at ~5.6 Gbps so it doesn't totally saturate the 10Gb link
+        sprintf("--bwlimit=%s", env_config$bwlimit), 
         batch_folder,
-        network_storage_dir
+        env_config$network_storage_dir
       )
     )
     
     if (transfer_status == 0) {
       cat("  [✓] Batch", current_batch, "successfully transferred to network.\n")
-      
-      # Clean up local files upon verified successful transfer
       cat("  [->] Removing local batch directory...\n")
       unlink(batch_folder, recursive = TRUE)
     } else {
@@ -185,8 +179,7 @@ for (current_batch in seq_along(unique_batches)) {
     toc()
     
   } else {
-    # If the folder was created but nothing was downloaded (e.g., everything was skipped),
-    # remove the empty local batch directory to keep things clean.
+    # Remove the empty local batch directory to keep things clean
     unlink(batch_folder, recursive = TRUE)
   }
   

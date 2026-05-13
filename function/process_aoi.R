@@ -296,10 +296,12 @@ process_aoi <- function(
   )
   final_status <- ifelse(is_complete, "Complete", "Partial")
   
-  # 7. Log Completion with the new final_status + Database Lock retry logic
+  # 7. Log Completion with Exponential Backoff Database Retry
   write_success <- FALSE
   retries <- 0
-  while (!write_success && retries < 10) {
+  max_db_retries <- 15 # Increased from 10
+  
+  while (!write_success && retries < max_db_retries) {
     tryCatch(
       {
         DBI::dbExecute(
@@ -311,8 +313,17 @@ process_aoi <- function(
       },
       error = function(e) {
         if (grepl("locked", e$message, ignore.case = TRUE)) {
-          Sys.sleep(runif(1, min = 1, max = 3))
           retries <<- retries + 1
+          
+          # Exponential backoff: Base 2, to the power of the retry count.
+          # Example: Retry 1 sleeps up to 2s, Retry 4 sleeps up to 16s.
+          max_sleep <- 2^retries 
+          
+          # Hard cap the wait time so a worker doesn't sleep for an hour
+          max_sleep <- min(max_sleep, 30) 
+          
+          Sys.sleep(runif(1, min = 1, max = max_sleep))
+          
         } else {
           stop(e)
         }
