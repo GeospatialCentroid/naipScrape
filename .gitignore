@@ -54,3 +54,5 @@ Thumbs.db
 
 # Ignore local network mounts
 mnt/
+# local config settings 
+config.yml

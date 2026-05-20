@@ -10,34 +10,36 @@ readAndName <- function(path, target_crs) {
 
   return(r1)
 }
-
-mergeAndExportNAIP <- function(files, out_path, aoi, year, buffer_only = TRUE) {
-  # Buffer to 500 meters for a 2x2km area
-  aoi500 <- sf::st_buffer(aoi, dist = 500)
-
+mergeAndExportNAIP <- function(files, out_path, aoi, year, buffer_m = 250, buffer_only = TRUE) {
+  # Buffer dynamically based on parameter
+  aoi_buf <- sf::st_buffer(aoi, dist = buffer_m)
+  
+  # Calculate dynamic label for filename.
+  # Assuming base AOI is 1000m. Total width = 1000m + (buffer_m * 2)
+  total_width_km <- (1000 + (2 * buffer_m)) / 1000 
+  label_km <- paste0(total_width_km, "km") # e.g., "1.5km"
+  
   # Get a template rast for CRS information
   r1 <- terra::rast(files[1])
-  master_crs <- terra::crs(r1) # Define the master CRS based on the first tile
+  master_crs <- terra::crs(r1) 
   aoi_proj <- terra::project(terra::vect(aoi), master_crs)
-
-  # Export the 1km vector geometry...
+  aoi_buf_proj <- terra::project(terra::vect(aoi_buf), master_crs)
+  
+  # Export the 1km vector geometry
   terra::writeVector(
     aoi_proj,
     file.path(out_path, paste0("aoi-", aoi$id, ".gpkg")),
     overwrite = TRUE
   )
-
-  aoi500_proj <- terra::project(terra::vect(aoi500), master_crs)
-
+  
   # Generate a template raster (1m resolution)
   temp <- terra::rast(
-    extent = ext(aoi500_proj),
+    extent = ext(aoi_buf_proj),
     crs = master_crs,
     nlyrs = 4,
     resolution = 1
   )
-
-  # 2. Update the mosaic block to pass the master_crs to the helper function
+  
   if (length(files) > 1) {
     rast <- purrr::map(
       .x = files,
@@ -48,32 +50,31 @@ mergeAndExportNAIP <- function(files, out_path, aoi, year, buffer_only = TRUE) {
   } else {
     rast <- terra::rast(files)
   }
-
-  # Crop, resample, and mask to the 2km buffered area
-  m1 <- terra::crop(rast, aoi500_proj) |>
+  
+  # Crop, resample, and mask to the dynamically buffered area
+  m1 <- terra::crop(rast, aoi_buf_proj) |>
     terra::resample(temp, method = "bilinear") |>
-    terra::mask(aoi500_proj)
-
-  # Export 2km data
-  export_2km <- file.path(
+    terra::mask(aoi_buf_proj)
+  
+  # Export dynamically sized data
+  export_buf <- file.path(
     out_path,
-    paste0("naip_2km_", aoi$id, "_", year, ".tif")
+    paste0("naip_", label_km, "_", aoi$id, "_", year, ".tif")
   )
-  terra::writeRaster(x = m1, export_2km, overwrite = TRUE)
-
+  terra::writeRaster(x = m1, export_buf, datatype = "INT1U", overwrite = TRUE)
+  
   # Conditionally process and export the 1km data
   if (!buffer_only) {
     m2 <- terra::crop(m1, aoi_proj) |>
       terra::mask(aoi_proj)
-
+    
     export_1km <- file.path(
       out_path,
       paste0("naip_1km_", aoi$id, "_", year, ".tif")
     )
-    terra::writeRaster(x = m2, export_1km, overwrite = TRUE)
+    terra::writeRaster(x = m2, export_1km, datatype = "INT1U", overwrite = TRUE)
   }
 }
-
 
 mergeAndExportLidar <- function(files, out_path, aoi) {
   # generates one image crop to the 1km areas

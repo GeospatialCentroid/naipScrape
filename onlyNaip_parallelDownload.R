@@ -17,6 +17,19 @@ mlra <- sf::st_read(dsn = "data/mlra/lower48MLRA.gpkg") |>
 
 # sample areas 
 grids <- readr::read_csv("data/LRR_sampleGrids/selectedSample.csv")
+# updating for model runs 
+grids <-  readr::read_csv("temp/missing_features.csv")
+# format for this species request 
+grids2 <- grids |>
+  dplyr::select(
+    index = Id,
+    year = year
+  )
+# generating data for all poential grids 
+grids <- readr::read_csv("~/trueNAS/work/naipScrape/data/LLR_F_grid_ids_and_years.csv")
+names(grids) <- c("id","year")
+
+
 
 # ---------------------------------------------------------
 # DIRECTORY & EXECUTION SETUP
@@ -33,7 +46,7 @@ if(local){
 
 # ---------------------------------------------------------
 # TOGGLE EXECUTION METHOD HERE
-use_parallel <- TRUE
+use_parallel <- FALSE
 # ---------------------------------------------------------
 
 # Create directories if they don't exist
@@ -55,11 +68,15 @@ target_indices <- 12000:15000
 
 # Create a master task list of all index/year combinations
 tasks <- expand.grid(index = target_indices, year = target_years, stringsAsFactors = FALSE)
+# setting up tasks for unique jobs 
+tasks <- expand.grid(index = grids$id, year = target_years, stringsAsFactors = FALSE)
+
+
 
 # ---------------------------------------------------------
 # BATCHING SETUP
 # ---------------------------------------------------------
-chunk_size <- 100
+chunk_size <- 10
 # Split the tasks dataframe into a list of smaller dataframes (max 100 rows each)
 task_chunks <- split(tasks, ceiling(seq_len(nrow(tasks)) / chunk_size))
 
@@ -103,11 +120,29 @@ for (batch_idx in seq_along(task_chunks)) {
       aoi <- getAOI(grid100 = g100, id = grids$id[i])
       id <- aoi$id
       
-      years <- getNAIPYear(aoi)
-      actual_year <- target_year
-      if (!target_year %in% years) {
-        actual_year <- as.character(as.numeric(target_year) - 1)
+      years_available <- getNAIPYear(aoi)
+      
+      # --- ROBUST YEAR HANDLING ---
+      target_num <- as.numeric(target_year)
+      preferred_years <- as.character(c(
+        target_num,      # Initial year
+        target_num - 1,  # Move one year down
+        target_num - 2,  # Move two years down
+        target_num + 1   # Move one year up
+      ))
+      
+      actual_year <- NULL
+      for (test_year in preferred_years) {
+        if (test_year %in% years_available) {
+          actual_year <- test_year
+          break 
+        }
       }
+      
+      if (is.null(actual_year)) {
+        return(list(id = id, year = target_year, status = "Failed - No imagery found within fallback range", time = 0))
+      }
+      # ----------------------------
       
       kmExport <- file.path(naip_dir, paste0("oneKM_", id, "_", actual_year, ".tif"))
       
@@ -155,25 +190,43 @@ for (batch_idx in seq_along(task_chunks)) {
       i <- current_tasks$index[task_row]
       target_year <- current_tasks$year[task_row]
       
-      aoi <- getAOI(grid100 = g100, id = grids$id[i])
+      aoi <- getAOI(grid100 = g100, id = grids$id[task_row])
       id <- aoi$id
       
-      years <- tryCatch({
+      years_available <- tryCatch({
         getNAIPYear(aoi)
       }, error = function(cond) {
         message(sprintf("\nSTAC API Error on getNAIPYear for ID %s: %s", id, conditionMessage(cond)))
         return(NULL) 
       })
       
-      if (is.null(years)) {
+      if (is.null(years_available)) {
         batch_results[[task_row]] <- list(id = id, year = target_year, status = "Failed - STAC API Error", time = 0)
         next 
       }
       
-      actual_year <- target_year
-      if (!target_year %in% years) {
-        actual_year <- as.character(as.numeric(target_year) - 1)
+      # --- ROBUST YEAR HANDLING ---
+      target_num <- as.numeric(target_year)
+      preferred_years <- as.character(c(
+        target_num,      # Initial year
+        target_num - 1,  # Move one year down
+        target_num - 2,  # Move two years down
+        target_num + 1   # Move one year up
+      ))
+      
+      actual_year <- NULL
+      for (test_year in preferred_years) {
+        if (test_year %in% years_available) {
+          actual_year <- test_year
+          break 
+        }
       }
+      
+      if (is.null(actual_year)) {
+        batch_results[[task_row]] <- list(id = id, year = target_year, status = "Failed - No imagery found within fallback range", time = 0)
+        next 
+      }
+      # ----------------------------
       
       kmExport <- file.path(naip_dir, paste0("oneKM_", id, "_", actual_year, ".tif"))
       

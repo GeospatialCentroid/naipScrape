@@ -30,6 +30,11 @@ table <- build_index_table(
   lon = coords_df$X
 )
 
+# new table for the update datasets 
+table <-  readr::read_csv("temp/missing_features.csv")
+
+
+
 # Setup directories
 aoi_dir <- file.path("data/aoiExports")
 naip_dir <- file.path("data/naipExports")
@@ -90,9 +95,9 @@ if (run_parallel) {
       # Updated with year = actual_year argument based on sequential edit
       mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi, year = actual_year)
       
-      r1 <- terra::rast(list.files(path = naip_dir, pattern = paste0("^oneKM_.*", id, ".*\\.tif$"), full.names = TRUE))
-      seeds <- generate_scaled_seeds(r = r1)
-      process_segmentations(r = r1, seed_list = seeds, output_dir = snic_dir, file_id = id, year = actual_year)
+      # r1 <- terra::rast(list.files(path = naip_dir, pattern = paste0("^oneKM_.*", id, ".*\\.tif$"), full.names = TRUE))
+      # seeds <- generate_scaled_seeds(r = r1)
+      # process_segmentations(r = r1, seed_list = seeds, output_dir = snic_dir, file_id = id, year = actual_year)
       
       copyToExport(id = id, year = actual_year)
       "Success"
@@ -120,15 +125,25 @@ if (run_parallel) {
     target_year <- as.character(table$year[task_row]) 
     
     # Extract coordinates to pass to getAOI
-    pt_lon <- table$lon[task_row]
-    pt_lat <- table$lat[task_row]
-    current_point <- c(pt_lon, pt_lat)
-    
-    cat(sprintf("\n--- Starting Task %d of %d ---\n", task_row, nrow(table)))
-    cat("1. Fetching AOI using point feature...\n")
-    
-    # Pass the coordinate vector to getAOI
-    aoi <- getAOI(grid100 = g100, point = current_point)
+    if("lon" %in% names(table)){
+      pt_lon <- table$lon[task_row]
+      pt_lat <- table$lat[task_row]
+      current_point <- c(pt_lon, pt_lat)
+      
+      cat(sprintf("\n--- Starting Task %d of %d ---\n", task_row, nrow(table)))
+      cat("1. Fetching AOI using point feature...\n")
+      
+      # Pass the coordinate vector to getAOI
+      aoi <- getAOI(grid100 = g100, point = current_point)
+    }else{
+      
+      cat(sprintf("\n--- Starting Task %d of %d ---\n", task_row, nrow(table)))
+      cat("1. Fetching AOI using id feature...\n")
+      
+      # Pass the coordinate vector to getAOI
+      aoi <- getAOI(grid100 = g100, id = table$Id[task_row])
+    }
+   
     id <- aoi$id
     
     cat("   -> AOI ID:", id, "| Target Year:", target_year, "\n")
@@ -158,14 +173,14 @@ if (run_parallel) {
       cat("   -> Found", length(naip_files), "files to merge.\n")
       
       cat("4. Merging NAIP Imagery...\n")
-      mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi,year = actual_year)
+      mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi,year = actual_year,buffer_only = FALSE)
       
-      cat("5. Starting SNIC Processing...\n")
-      r1_path <- list.files(path = naip_dir, pattern = paste0("^oneKM_.*", id, ".*\\.tif$"), full.names = TRUE)
-      r1 <- terra::rast(r1_path)
-      seeds <- generate_scaled_seeds(r = r1)
-      process_segmentations(r = r1, seed_list = seeds, output_dir = snic_dir, file_id = id, year = actual_year)
-      
+      # cat("5. Starting SNIC Processing...\n")
+      # r1_path <- list.files(path = naip_dir, pattern = paste0("^oneKM_.*", id, ".*\\.tif$"), full.names = TRUE)
+      # r1 <- terra::rast(r1_path)
+      # seeds <- generate_scaled_seeds(r = r1)
+      # process_segmentations(r = r1, seed_list = seeds, output_dir = snic_dir, file_id = id, year = actual_year)
+      # 
       cat("6. Exporting Final Data...\n")
       copyToExport(id = id, year = actual_year)
       

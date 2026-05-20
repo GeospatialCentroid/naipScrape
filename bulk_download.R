@@ -23,8 +23,7 @@ pacman::p_load(
 lapply(list.files(path = "function", pattern = ".R", full.names = TRUE), source)
 
 # TOGGLE ENVIRONMENT HERE (TRUE = MacBook via Tailscale | FALSE = Ubuntu VM via 10G)
-# Update the Tailscale IP to match your TrueNAS Tailscale address
-env_config <- get_env_config(MAC = TRUE) 
+env_config <- get_env_config(MAC = FALSE) 
 
 message(sprintf("Initializing in %s mode...", env_config$os_env))
 
@@ -40,8 +39,6 @@ is_mounted <- any(grepl(env_config$mount_point, system("mount", intern = TRUE)))
 
 if (!is_mounted) {
   message("Connecting to TrueNAS network drive...")
-  
-  # Execute the OS-specific mount command
   exit_status <- system(env_config$mount_cmd)
   
   if (exit_status != 0) {
@@ -52,7 +49,6 @@ if (!is_mounted) {
   message("TrueNAS drive is already mounted. Proceeding...")
 }
 
-# Ensure the target NAIP directory exists on the network drive
 dir.create(env_config$network_storage_dir, showWarnings = FALSE, recursive = TRUE)
 
 # ---------------------------------------------------------
@@ -61,7 +57,6 @@ dir.create(env_config$network_storage_dir, showWarnings = FALSE, recursive = TRU
 db_path <- "data/download_tracker.sqlite"
 con <- dbConnect(RSQLite::SQLite(), db_path)
 
-# Create table if it doesn't exist
 dbExecute(
   con,
   "
@@ -82,27 +77,26 @@ dbDisconnect(con)
 # 3. EXECUTION: BATCHING & FURRR
 # ---------------------------------------------------------
 
-# Setup parallel backend dynamically based on OS config
 plan(multisession, workers = env_config$workers)
 message(sprintf("Parallel workers set to: %s", env_config$workers))
 
-# Create batches of 50
 batch_size <- 50
 aoi_table <- aoi_table |>
   mutate(batch_id = ceiling(row_number() / batch_size))
 
+# --- GEOSPATIAL PARAMETERS ---
 target_years <- c("2012", "2016", "2020")
+target_buffer_m <- 250 # 250m buffer results in a 1.5km total width
+
 unique_batches <- unique(aoi_table$batch_id)
 
 for (current_batch in seq_along(unique_batches)) {  
-  # START OVERALL BATCH TIMER
   tic(paste("Total Time for Batch", current_batch))
   
   batch_folder_name <- paste0("naip_batch_", current_batch)
   batch_folder <- file.path(local_working_dir, batch_folder_name)
   dir.create(batch_folder, showWarnings = FALSE)
   
-  # PRE-PROCESSING FILTER: Check local and network drives
   batch_data <- aoi_table |> 
     filter(batch_id == current_batch) |>
     mutate(
@@ -118,7 +112,6 @@ for (current_batch in seq_along(unique_batches)) {
   cat("Total AOIs:", nrow(batch_data), "| Skipping:", nrow(batch_data) - nrow(to_process), "| Processing:", nrow(to_process), "\n")
   
   if (nrow(to_process) > 0) {
-    # START IMAGE PROCESSING TIMER
     tic("Image Processing (Furrr)")
     
     results <- future_map(
@@ -130,13 +123,13 @@ for (current_batch in seq_along(unique_batches)) {
         g100_grid = g100,
         db_path = db_path,
         batch_id = current_batch,
-        network_dir = env_config$network_storage_dir
+        network_dir = env_config$network_storage_dir,
+        buffer_m = target_buffer_m # Pass parameter down to process_aoi
       ),
       .progress = TRUE,
       .options = furrr_options(seed = TRUE)
     )
     
-    # END IMAGE PROCESSING TIMER
     toc()
   } else {
     cat("  [✓] All AOIs in this batch already exist locally or on the network.\n")
@@ -146,10 +139,7 @@ for (current_batch in seq_along(unique_batches)) {
   # 4. DIRECTORY TRANSFER & CLEANUP
   # ---------------------------------------------------------
   
-  # Only trigger rsync if there is actually data inside the local batch folder
   if (length(list.files(batch_folder)) > 0) {
-    
-    # START NETWORK TRANSFER TIMER
     tic("Network Transfer (Raw Directory)")
     cat(sprintf("\n  [->] Transferring via rsync (Bandwidth limit: %s)...\n", env_config$bwlimit))
     
@@ -168,22 +158,12 @@ for (current_batch in seq_along(unique_batches)) {
       cat("  [->] Removing local batch directory...\n")
       unlink(batch_folder, recursive = TRUE)
     } else {
-      warning(
-        "Transfer failed for Batch ",
-        current_batch,
-        ". Local files retained for manual review."
-      )
+      warning("Transfer failed for Batch ", current_batch, ". Local files retained.")
     }
-    
-    # END NETWORK TRANSFER TIMER
     toc()
-    
   } else {
-    # Remove the empty local batch directory to keep things clean
     unlink(batch_folder, recursive = TRUE)
   }
-  
-  # END OVERALL BATCH TIMER
   toc()
   cat("==========================================\n")
 }
