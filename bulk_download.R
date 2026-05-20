@@ -90,7 +90,8 @@ target_buffer_m <- 250 # 250m buffer results in a 1.5km total width
 
 unique_batches <- unique(aoi_table$batch_id)
 
-for (current_batch in seq_along(unique_batches)) {  
+for (current_batch in seq_along(unique_batches)) {  #
+  # START OVERALL BATCH TIMER
   tic(paste("Total Time for Batch", current_batch))
   
   batch_folder_name <- paste0("naip_batch_", current_batch)
