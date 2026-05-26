@@ -2,7 +2,7 @@
 ## currently duplicated from the preprocessingFunction.R
 buildGrids <- function(extent_object, cell_size) {
   # transform to equal area
-  ea <- sf::st_transform(extent_object, 5070)
+    ea <- sf::st_transform(extent_object, 5070)
   # generate grid
   grid <- sf::st_make_grid(
     x = ea,

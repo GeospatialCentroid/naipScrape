@@ -31,6 +31,8 @@ aoi_table <- read.csv("data/LRR_sampleGrids/selectedSample_lrr_F_05_2026.csv")
 local_working_dir <- "data/processing_batches"
 dir.create(local_working_dir, showWarnings = FALSE, recursive = TRUE)
 
+
+
 # establish grid features
 g100 <- sf::st_read("data/grid100km_aea.gpkg")
 
@@ -124,8 +126,8 @@ for (current_batch in seq_along(unique_batches)) {  #
         g100_grid = g100,
         db_path = db_path,
         batch_id = current_batch,
-        network_dir = env_config$network_storage_dir,
-        buffer_m = target_buffer_m # Pass parameter down to process_aoi
+        network_dir = env_config$network_storage_dir
+        # buffer_m = target_buffer_m # Pass parameter down to process_aoi
       ),
       .progress = TRUE,
       .options = furrr_options(seed = TRUE)
@@ -168,3 +170,8 @@ for (current_batch in seq_along(unique_batches)) {  #
   toc()
   cat("==========================================\n")
 }
+
+
+
+
+

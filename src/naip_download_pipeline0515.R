@@ -9,9 +9,16 @@ lapply(list.files(path = "function", pattern = ".R", full.names = TRUE), source)
 # establish grid features
 g100 <- sf::st_read("data/grid100km_aea.gpkg")
 
-# Load only the specified input data
-grids <- readr::read_csv("data/LLR_F_grid_ids_and_years.csv")
-unique_grid_ids <- unique(grids$`Grid ID`)
+# Load only the specified' input data
+grids <- readr::read_csv("data/LRR_sampleGrids/selectedSample_lrr_F_05_2026.csv")
+
+
+# missing locations from the bulk download 
+aoi_table <- read.csv("data/downloadChecks/missing_naip_datasets.csv")
+unique_grid_ids <- unique(aoi_table$id)
+
+
+
 
 # ---------------------------------------------------------
 # DIRECTORY, EXECUTION & PARAMETER SETUP
@@ -27,7 +34,7 @@ if(local){
 }
 
 # --- TOGGLE BUFFER & NAMING CONVENTION ---
-use_buffer <- FALSE 
+use_buffer <- TRUE
 
 # Create main directories if they don't exist
 dir.create(temp_dir, showWarnings = FALSE, recursive = TRUE)
@@ -37,14 +44,32 @@ dir.create(aoi_dir, showWarnings = FALSE, recursive = TRUE)
 tic("Total Script Runtime") # Overall timer for the whole process
 
 # --- MULTI-YEAR SETUP ---
-target_years <- c("2012", "2016", "2020")
+multiYear <- TRUE 
+if(isTRUE(multiYear)){
+  target_years <- c("2012", "2016", "2020")
+  # Create a master task list of all grid ID / year combinations
+  tasks <- expand.grid(id = unique_grid_ids, year = target_years, stringsAsFactors = FALSE)
+}else{
+  tasks <- grids
+}
 
-# Create a master task list of all grid ID / year combinations
-tasks <- expand.grid(id = unique_grid_ids, year = target_years, stringsAsFactors = FALSE)
+# filter the grids to only include the missing years 
+# 1. Expand the comma-separated string into individual rows, keeping it as character
+aoi_expanded <- aoi_table %>%
+  select(id, missing_target_years) %>%
+  # Split the string by comma and optional space
+  separate_rows(missing_target_years, sep = ",\\s*")
+
+# 2. Match them up (both sides are now <character> type)
+filtered_tasks <- tasks %>%
+  semi_join(aoi_expanded, by = c("id" = "id", "year" = "missing_target_years"))
+
+# reaasign the tasks object 
+tasks <- filtered_tasks
+  
+
 iterations <- nrow(tasks)
-
 all_results <- vector("list", iterations)
-
 # ---------------------------------------------------------
 # EXECUTION BLOCK (SEQUENTIAL ONLY)
 # ---------------------------------------------------------
@@ -122,7 +147,7 @@ for (task_row in 1:iterations) {
   tic()
   process_status <- tryCatch({
     # Pass the toggle to the updated VSI download function
-    downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir, buffered = use_buffer)
+    downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir, buffer_m = 250)
     
     naip_string <- paste0("^naip_", actual_year, ".*", id, ".*\\.tif$")
     naip_files <- list.files(path = temp_dir, pattern = naip_string, full.names = TRUE)
@@ -130,7 +155,7 @@ for (task_row in 1:iterations) {
     if (length(naip_files) == 0) stop("Download succeeded but no files matched the regex pattern.")
     
     # Merge and export directly into the new AOI-specific folder
-    mergeAndExportNAIP(files = naip_files, out_path = aoi_out_dir, aoi = aoi, year = actual_year)
+    mergeAndExportNAIP(files = naip_files, out_path = aoi_out_dir, aoi = aoi, year = actual_year, buffer_m = 250, buffer_only = TRUE)
     
     # --- STRICT NAMING ENFORCEMENT ---
     # Find the newly generated .tif file in the folder for this specific year
@@ -192,3 +217,79 @@ if (length(success_times) > 0) {
 }
 cat("Total script runtime: ", round(total_runtime$toc - total_runtime$tic, 2), "seconds\n")
 cat("==========================================\n")
+
+
+
+# ---------------------------------------------------------
+# POST-DOWNLOAD MISSING DATA AUDIT
+# ---------------------------------------------------------
+cat("\n==========================================\n")
+cat("POST-DOWNLOAD AUDIT: REMAINING MISSING IMAGERY\n")
+cat("==========================================\n")
+
+# 1. Identify which unique IDs were processed in this script
+distinct_ids <- unique(tasks$id)
+
+# 2. Map through the localized output folders to verify actual file presence
+remaining_missing <- lapply(distinct_ids, function(current_id) {
+  
+  aoi_out_dir <- file.path(naip_dir, current_id)
+  
+  # If the folder doesn't exist at all, all target years are missing
+  if (!dir.exists(aoi_out_dir)) {
+    return(tibble(
+      id = current_id, 
+      remaining_missing_years = paste(target_years, collapse = ", ")
+    ))
+  }
+  
+  # Scan the directory for downloaded .tif files
+  files <- list.files(aoi_out_dir, pattern = "\\.tif$", ignore.case = TRUE)
+  
+  # Extract years from the filenames (matching your regex format)
+  found_years <- sub(".*_(\\d{4})\\.tif$", "\\1", files, ignore.case = TRUE)
+  found_years <- unique(found_years[grepl("^\\d{4}$", found_years)])
+  
+  missing_targets <- character(0)
+  
+  # Re-evaluate using your preferred fallback hierarchy
+  for (target_year in target_years) {
+    target_num <- as.numeric(target_year)
+    preferred_years <- as.character(c(
+      target_num,     
+      target_num - 1, 
+      target_num - 2, 
+      target_num + 1  
+    ))
+    
+    if (!any(preferred_years %in% found_years)) {
+      missing_targets <- c(missing_targets, target_year)
+    }
+  }
+  
+  # Return a row only if there are still missing years
+  if (length(missing_targets) > 0) {
+    return(tibble(
+      id = current_id,
+      remaining_missing_years = paste(missing_targets, collapse = ", ")
+    ))
+  } else {
+    return(NULL)
+  }
+}) %>% 
+  bind_rows()
+
+# 3. Print the diagnostic report to the console
+if (nrow(remaining_missing) > 0) {
+  cat(sprintf("Warning: %d IDs are still missing target imagery windows after running.\n\n", nrow(remaining_missing)))
+  print(as.data.frame(remaining_missing), row.names = FALSE)
+  
+  # Optional: Save a delta report so you don't overwrite your primary tracker
+  delta_output_file <- file.path("data", "downloadChecks", "still_missing_after_run.csv")
+  write.csv(remaining_missing, delta_output_file, row.names = FALSE)
+  cat(sprintf("\nDetailed delta log saved to: %s\n", delta_output_file))
+} else {
+  cat("Success! All attempted task IDs now fulfill their target imagery windows.\n")
+}
+cat("==========================================\n")
+
