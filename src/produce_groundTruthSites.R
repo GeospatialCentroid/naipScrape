@@ -12,26 +12,38 @@ lapply(list.files(path = "function", pattern = ".R", full.names = TRUE), source)
 # establish grid features
 g100 <- sf::st_read("data/grid100km_aea.gpkg")
 
+lrr_symbol <- "F"
 # random sampling with an LRR
 mlra <- sf::st_read(dsn = "data/mlra/lower48MLRA.gpkg") |>
-  dplyr::filter(LRRSYM == "F")
+  dplyr::filter(LRRSYM == lrr_symbol)
+# establish methods for random selection within an LLR or selection from within an establish set of 1km areas else it should read in a specific set of site ids. 
+if(random){
+  set.seed(12486)
 
-# change seed for difference
-set.seed(12486)
+  # generate 18 random spatial samples
+  points <- sf::st_sample(x = mlra, size = 54, by_polygon = TRUE)
+  coords_df <- as.data.frame(st_coordinates(points))
 
-# generate 18 random spatial samples
-points <- sf::st_sample(x = mlra, size = 54, by_polygon = TRUE)
-coords_df <- as.data.frame(st_coordinates(points))
+  # Builds table with 54 features (18 locations * 3 years)
+  table <- build_index_table(
+    years = rep(c("2012", "2016", "2020"), 18),
+    lat = coords_df$Y,
+    lon = coords_df$X
+  )
 
-# Builds table with 54 features (18 locations * 3 years)
-table <- build_index_table(
-  years = rep(c("2012", "2016", "2020"), 18),
-  lat = coords_df$Y,
-  lon = coords_df$X
-)
 
-# new table for the update datasets 
-table <-  readr::read_csv("temp/missing_features.csv")
+}else{
+  # new table for the update datasets or specific location runs 
+  table <-  readr::read_csv("temp/missing_features.csv")
+}
+
+
+
+
+
+
+
+
 
 
 
@@ -80,14 +92,43 @@ if (run_parallel) {
       return(list(id = id, year = target_year, status = "Skipped - Already Exists", time = 0))
     }
     
-    years <- getNAIPYear(aoi)
-    actual_year <- ifelse(target_year %in% years, target_year, as.character(as.numeric(target_year) - 1))
+    # --- 2. API YEAR CHECK ---
+    years_available <- tryCatch({
+      getNAIPYear(aoi)
+    }, error = function(cond) {
+      return(NULL) 
+    })
+    
+    if (is.null(years_available)) {
+      return(list(id = id, year = target_year, status = "Failed - STAC API Error", time = 0))
+    }
+    
+    # --- 3. ROBUST YEAR HANDLING ---
+    target_num <- as.numeric(target_year)
+    preferred_years <- as.character(c(
+      target_num,      # Initial year
+      target_num - 1,  # Move one year down
+      target_num - 2,  # Move two years down
+      target_num + 1   # Move one year up
+    ))
+    
+    actual_year <- NULL
+    for (test_year in preferred_years) {
+      if (test_year %in% years_available) {
+        actual_year <- test_year
+        break 
+      }
+    }
+    
+    if (is.null(actual_year)) {
+      return(list(id = id, year = target_year, status = "Failed - No imagery found within fallback range", time = 0))
+    }
     
     tic()
     process_status <- tryCatch({
       downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir)
       
-      naip_string <- paste0("^naip_",actual_year,".*", id, ".*\\.tif$")
+      naip_string <- paste0("^naip_", actual_year, "_id_", id, "_[0-9]+\\.tif$")
       naip_files <- list.files(path = temp_dir, pattern = naip_string, full.names = TRUE)
       
       if (length(naip_files) == 0) stop("No files matched the regex pattern.")
@@ -153,18 +194,51 @@ if (run_parallel) {
       return(list(id = id, year = target_year, status = "Skipped - Already Exists", time = 0))
     }
     
-    years <- getNAIPYear(aoi)
-    actual_year <- ifelse(target_year %in% years, target_year, as.character(as.numeric(target_year) - 1))
+    # --- 2. API YEAR CHECK ---
+    cat("2. Checking STAC API for available years...\n")
+    years_available <- tryCatch({
+      getNAIPYear(aoi)
+    }, error = function(cond) {
+      return(NULL) 
+    })
+    
+    if (is.null(years_available)) {
+      cat("   -> Status: Failed (STAC API Error)\n")
+      return(list(id = id, year = target_year, status = "Failed - STAC API Error", time = 0))
+    }
+    
+    # --- 3. ROBUST YEAR HANDLING ---
+    target_num <- as.numeric(target_year)
+    preferred_years <- as.character(c(
+      target_num,      # Initial year
+      target_num - 1,  # Move one year down
+      target_num - 2,  # Move two years down
+      target_num + 1   # Move one year up
+    ))
+    
+    actual_year <- NULL
+    for (test_year in preferred_years) {
+      if (test_year %in% years_available) {
+        actual_year <- test_year
+        break 
+      }
+    }
+    
+    if (is.null(actual_year)) {
+      cat("   -> Status: Failed (No imagery within fallback range)\n")
+      return(list(id = id, year = target_year, status = "Failed - No imagery found within fallback range", time = 0))
+    }
+    
     cat("   -> Actual Year assigned:", actual_year, "\n")
     
     tic()
     process_status <- tryCatch({
       
-      cat("2. Requesting Planetary Computer Download...\n")
+      cat("4. Requesting Planetary Computer Download...\n")
       downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir)
       
-      cat("3. Locating Downloaded Files...\n")
-      naip_string <- paste0("^naip_",actual_year,".*", id, ".*\\.tif$")
+      cat("5. Locating Downloaded Files...\n")
+      naip_string <- paste0("^naip_", actual_year, "_id_", id, "_[0-9]+\\.tif$")
       naip_files <- list.files(path = temp_dir, pattern = naip_string, full.names = TRUE)
       
       if (length(naip_files) == 0) {
@@ -172,16 +246,16 @@ if (run_parallel) {
       }
       cat("   -> Found", length(naip_files), "files to merge.\n")
       
-      cat("4. Merging NAIP Imagery...\n")
+      cat("6. Merging NAIP Imagery...\n")
       mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi,year = actual_year,buffer_only = FALSE)
       
-      # cat("5. Starting SNIC Processing...\n")
+      # cat("7. Starting SNIC Processing...\n")
       # r1_path <- list.files(path = naip_dir, pattern = paste0("^oneKM_.*", id, ".*\\.tif$"), full.names = TRUE)
       # r1 <- terra::rast(r1_path)
       # seeds <- generate_scaled_seeds(r = r1)
       # process_segmentations(r = r1, seed_list = seeds, output_dir = snic_dir, file_id = id, year = actual_year)
       # 
-      cat("6. Exporting Final Data...\n")
+      cat("8. Exporting Final Data...\n")
       copyToExport(id = id, year = actual_year)
       
       cat("   -> Task completed successfully.\n")
