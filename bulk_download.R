@@ -12,7 +12,6 @@ pacman::p_load(
   DBI,
   RSQLite,
   tools,
-  tmap,
   tictoc
 )
 
