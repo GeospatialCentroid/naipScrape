@@ -12,29 +12,39 @@ lapply(list.files(path = "function", pattern = ".R", full.names = TRUE), source)
 # establish grid features
 g100 <- sf::st_read("data/grid100km_aea.gpkg")
 
-lrr_symbol <- "F"
+lrr_symbol <- "G"
 # random sampling with an LRR
 mlra <- sf::st_read(dsn = "data/mlra/lower48MLRA.gpkg") |>
   dplyr::filter(LRRSYM == lrr_symbol)
+
+random <- TRUE
+
 # establish methods for random selection within an LLR or selection from within an establish set of 1km areas else it should read in a specific set of site ids. 
 if(random){
   set.seed(12486)
-
-  # generate 18 random spatial samples
-  points <- sf::st_sample(x = mlra, size = 54, by_polygon = TRUE)
+  
+  # assign sample number : number of sites 
+  sites <- 30
+  
+  # generate random spatial samples
+  points <- sf::st_sample(x = mlra, size = sites, by_polygon = TRUE)
   coords_df <- as.data.frame(st_coordinates(points))
-
+  
   # Builds table with 54 features (18 locations * 3 years)
   table <- build_index_table(
-    years = rep(c("2012", "2016", "2020"), 18),
+    years = rep(c("2010", "2012", "2014", "2016","2018", "2020", "2022", "2024"), sites),
     lat = coords_df$Y,
     lon = coords_df$X
   )
-
-
+  
+  
 }else{
   # new table for the update datasets or specific location runs 
-  table <-  readr::read_csv("temp/missing_features.csv")
+  table <-  readr::read_csv("data/groundTruthSites/lrr_F_final60_GT_sites.csv")
+  # need to assing a random year - added method back to the naip scape process 
+  years <- c(2010, 2016, 2020)
+  table <- table %>%
+    mutate(year = sample(years, size = n(), replace = TRUE))
 }
 
 
@@ -55,8 +65,9 @@ lidar_dir <- file.path("data/lidarExports")
 temp_dir <- file.path("data/download")
 export_dir <- file.path("data/exportData")
 
-# --- EXECUTION TOGGLE ---
+# --- EXECUTION TOGGLES ---
 run_parallel <- FALSE # Set to TRUE for production, FALSE for sequential debugging
+run_snic <- FALSE     # Set to TRUE to generate SNIC location data, FALSE to skip
 # ------------------------
 
 tic("Total Script Runtime")
@@ -136,9 +147,11 @@ if (run_parallel) {
       # Updated with year = actual_year argument based on sequential edit
       mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi, year = actual_year)
       
-      # r1 <- terra::rast(list.files(path = naip_dir, pattern = paste0("^oneKM_.*", id, ".*\\.tif$"), full.names = TRUE))
-      # seeds <- generate_scaled_seeds(r = r1)
-      # process_segmentations(r = r1, seed_list = seeds, output_dir = snic_dir, file_id = id, year = actual_year)
+      if (run_snic) {
+        r1 <- terra::rast(list.files(path = naip_dir, pattern = paste0("^oneKM_.*", id, ".*\\.tif$"), full.names = TRUE))
+        seeds <- generate_scaled_seeds(r = r1)
+        process_segmentations(r = r1, seed_list = seeds, output_dir = snic_dir, file_id = id, year = actual_year)
+      }
       
       copyToExport(id = id, year = actual_year)
       "Success"
@@ -150,7 +163,7 @@ if (run_parallel) {
     return(list(id = id, year = target_year, status = process_status, time = t_out$toc - t_out$tic))
   }
   stopCluster(cl)
-
+  
 } else {
   # ==========================================
   # SEQUENTIAL EXECUTION (WITH DEBUG TRACKING)
@@ -182,9 +195,9 @@ if (run_parallel) {
       cat("1. Fetching AOI using id feature...\n")
       
       # Pass the coordinate vector to getAOI
-      aoi <- getAOI(grid100 = g100, id = table$Id[task_row])
+      aoi <- getAOI(grid100 = g100, id = table$id[task_row])
     }
-   
+    
     id <- aoi$id
     
     cat("   -> AOI ID:", id, "| Target Year:", target_year, "\n")
@@ -249,12 +262,16 @@ if (run_parallel) {
       cat("6. Merging NAIP Imagery...\n")
       mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi,year = actual_year,buffer_only = FALSE)
       
-      # cat("7. Starting SNIC Processing...\n")
-      # r1_path <- list.files(path = naip_dir, pattern = paste0("^oneKM_.*", id, ".*\\.tif$"), full.names = TRUE)
-      # r1 <- terra::rast(r1_path)
-      # seeds <- generate_scaled_seeds(r = r1)
-      # process_segmentations(r = r1, seed_list = seeds, output_dir = snic_dir, file_id = id, year = actual_year)
-      # 
+      if (run_snic) {
+        cat("7. Starting SNIC Processing...\n")
+        r1_path <- list.files(path = naip_dir, pattern = paste0("1km_.*", id, ".*\\.tif$"), full.names = TRUE)      
+        r1  <- terra::rast(r1_path)
+        seeds <- generate_scaled_seeds(r = r1)
+        process_segmentations(r = r1, seed_list = seeds, output_dir = snic_dir, file_id = id, year = actual_year)
+      } else {
+        cat("7. Skipping SNIC Processing...\n")
+      }
+      
       cat("8. Exporting Final Data...\n")
       copyToExport(id = id, year = actual_year)
       
@@ -303,4 +320,3 @@ if (length(failed_runs) > 0) {
     cat("ID:", fail$id, "| Year:", fail$year, "| Error:", fail$status, "\n")
   }
 }
-
