@@ -126,13 +126,14 @@ if (run_parallel) {
     
     tic()
     process_status <- tryCatch({
-      downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir)
-      
+      tile_meta <- downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir)
+      write.csv(tile_meta, file.path(naip_dir, paste0("collection_meta_", id, "_", actual_year, ".csv")), row.names = FALSE)
+
       naip_string <- paste0("^naip_", actual_year, "_id_", id, "_[0-9]+\\.tif$")
       naip_files <- list.files(path = temp_dir, pattern = naip_string, full.names = TRUE)
-      
+
       if (length(naip_files) == 0) stop("No files matched the regex pattern.")
-      
+
       # Updated with year = actual_year argument based on sequential edit
       mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi, year = actual_year)
       
@@ -235,19 +236,20 @@ if (run_parallel) {
     process_status <- tryCatch({
       
       cat("4. Requesting Planetary Computer Download...\n")
-      downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir)
-      
+      tile_meta <- downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir)
+      write.csv(tile_meta, file.path(naip_dir, paste0("collection_meta_", id, "_", actual_year, ".csv")), row.names = FALSE)
+
       cat("5. Locating Downloaded Files...\n")
       naip_string <- paste0("^naip_", actual_year, "_id_", id, "_[0-9]+\\.tif$")
       naip_files <- list.files(path = temp_dir, pattern = naip_string, full.names = TRUE)
-      
+
       if (length(naip_files) == 0) {
         stop("Download function passed, but no files matched the regex pattern on disk.")
       }
       cat("   -> Found", length(naip_files), "files to merge.\n")
-      
+
       cat("6. Merging NAIP Imagery...\n")
-      mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi,year = actual_year,buffer_only = FALSE)
+      mergeAndExportNAIP(files = naip_files, out_path = naip_dir, aoi = aoi, year = actual_year, buffer_only = FALSE)
       
       # cat("7. Starting SNIC Processing...\n")
       # r1_path <- list.files(path = naip_dir, pattern = paste0("^oneKM_.*", id, ".*\\.tif$"), full.names = TRUE)

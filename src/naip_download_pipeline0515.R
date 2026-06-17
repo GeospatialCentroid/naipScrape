@@ -122,7 +122,8 @@ for (task_row in 1:iterations) {
   tic()
   process_status <- tryCatch({
     # Pass the toggle to the updated VSI download function
-    downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir, buffered = use_buffer)
+    tile_meta <- downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir, buffered = use_buffer)
+    write.csv(tile_meta, file.path(aoi_out_dir, paste0("collection_meta_", actual_year, ".csv")), row.names = FALSE)
     
     naip_string <- paste0("^naip_", actual_year, "_id_", id, "_[0-9]+\\.tif$")
     naip_files <- list.files(path = temp_dir, pattern = naip_string, full.names = TRUE)

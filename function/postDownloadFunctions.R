@@ -62,17 +62,19 @@ mergeAndExportNAIP <- function(files, out_path, aoi, year, buffer_m = 250, buffe
     paste0("naip_", label_km, "_", aoi$id, "_", year, ".tif")
   )
   terra::writeRaster(x = m1, export_buf, datatype = "INT1U", overwrite = TRUE)
-  
+  sf::gdal_utils("info", source = export_buf, options = "-stats", quiet = TRUE)
+
   # Conditionally process and export the 1km data
   if (!buffer_only) {
     m2 <- terra::crop(m1, aoi_proj) |>
       terra::mask(aoi_proj)
-    
+
     export_1km <- file.path(
       out_path,
       paste0("naip_1km_", aoi$id, "_", year, ".tif")
     )
     terra::writeRaster(x = m2, export_1km, datatype = "INT1U", overwrite = TRUE)
+    sf::gdal_utils("info", source = export_1km, options = "-stats", quiet = TRUE)
   }
 }
 

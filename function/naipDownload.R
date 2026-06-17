@@ -110,20 +110,30 @@ downloadNAIP_vsi <- function(aoi, year, exportFolder, buffer_m = 0) {
   for (i in seq_along(image_urls)) {
     vsi_path <- paste0("/vsicurl/", image_urls[i])
     remote_rast <- terra::rast(vsi_path)
-    
+
     aoi_proj <- sf::st_transform(target_aoi, crs = terra::crs(remote_rast))
-    
+
     out_file <- file.path(
       exportFolder,
       paste0("naip_", year, "_id_", aoi$id[1], "_", i, ".tif")
     )
-    
+
     terra::crop(
-      x = remote_rast, 
-      y = aoi_proj, 
-      filename = out_file, 
-      datatype = "INT1U", 
+      x = remote_rast,
+      y = aoi_proj,
+      filename = out_file,
+      datatype = "INT1U",
       overwrite = TRUE
     )
   }
+
+  meta_df <- data.frame(
+    aoi_id          = aoi$id[1],
+    target_year     = year,
+    tile_index      = seq_along(search_results$features),
+    item_id         = sapply(search_results$features, function(f) f$id),
+    collection_date = sapply(search_results$features, function(f) f$properties$datetime),
+    naip_state      = sapply(search_results$features, function(f) f$properties[["naip:state"]])
+  )
+  invisible(meta_df)
 }

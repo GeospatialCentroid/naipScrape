@@ -188,11 +188,12 @@ process_aoi <- function(
           while (!download_success && retry_count < max_retries) {
             tryCatch(
               {
-                downloadNAIP_vsi(
+                tile_meta <- downloadNAIP_vsi(
                   aoi = aoi,
                   year = actual_year,
                   exportFolder = worker_temp
                 )
+                write.csv(tile_meta, file.path(aoi_folder, paste0("collection_meta_", actual_year, ".csv")), row.names = FALSE)
                 download_success <- TRUE # If it gets here, it worked!
               },
               error = function(api_err) {
