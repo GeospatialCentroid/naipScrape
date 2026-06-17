@@ -1,3 +1,15 @@
+fix_alpha_band <- function(filepath) {
+  tmp <- paste0(filepath, ".fix.tif")
+  sf::gdal_utils(
+    "translate",
+    source = filepath,
+    destination = tmp,
+    options = c("-colorinterp_4", "undefined")
+  )
+  file.remove(filepath)
+  file.rename(tmp, filepath)
+}
+
 # 1. Update the helper function to force a CRS match
 readAndName <- function(path, target_crs) {
   r1 <- terra::rast(path)
@@ -62,6 +74,7 @@ mergeAndExportNAIP <- function(files, out_path, aoi, year, buffer_m = 250, buffe
     paste0("naip_", label_km, "_", aoi$id, "_", year, ".tif")
   )
   terra::writeRaster(x = m1, export_buf, datatype = "INT1U", overwrite = TRUE)
+  fix_alpha_band(export_buf)
   sf::gdal_utils("info", source = export_buf, options = "-stats", quiet = TRUE)
 
   # Conditionally process and export the 1km data
@@ -74,6 +87,7 @@ mergeAndExportNAIP <- function(files, out_path, aoi, year, buffer_m = 250, buffe
       paste0("naip_1km_", aoi$id, "_", year, ".tif")
     )
     terra::writeRaster(x = m2, export_1km, datatype = "INT1U", overwrite = TRUE)
+    fix_alpha_band(export_1km)
     sf::gdal_utils("info", source = export_1km, options = "-stats", quiet = TRUE)
   }
 }

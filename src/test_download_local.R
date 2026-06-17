@@ -23,10 +23,8 @@ source("function/postDownloadFunctions.R")
 # TEST PARAMETERS — change these to iterate
 # -------------------------------------------------------------
 
-# One lat/lon point inside LRR F
-# Swap coords to test a different location
-TEST_LON  <- -98.35
-TEST_LAT  <-  38.70
+# Grid cell ID from grid100km_aea.gpkg (five-part hex string, e.g. "a-3-2-1-c")
+TEST_GRID_ID <- "a-3-2-1-c"
 
 # Year to request; the pipeline will fall back ±2 years if needed
 TEST_YEAR <- "2020"
@@ -58,7 +56,7 @@ dir.create(out_dir,  showWarnings = FALSE, recursive = TRUE)
 
 cat("\n==============================================\n")
 cat("NAIP LOCAL DOWNLOAD TEST\n")
-cat("Point  :", TEST_LON, TEST_LAT, "\n")
+cat("Grid ID:", TEST_GRID_ID, "\n")
 cat("Year   :", TEST_YEAR, "\n")
 cat("Buffer :", TEST_BUFFER_M, "m\n")
 cat("Output :", out_dir, "\n")
@@ -71,10 +69,8 @@ tic("Total test runtime")
 
 cat("[1/5] Loading grid and resolving AOI...\n")
 g100 <- sf::st_read(grid_path, quiet = TRUE)
-aoi  <- getAOI(grid100 = g100, point = c(TEST_LON, TEST_LAT))
+aoi  <- getAOI(grid100 = g100, id = TEST_GRID_ID)
 id   <- aoi$id
-
-cat("      AOI id:", id, "\n")
 
 # -------------------------------------------------------------
 # 4. CHECK AVAILABLE YEARS VIA STAC
