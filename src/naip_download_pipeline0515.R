@@ -36,6 +36,7 @@ if(local){
 # --- TOGGLE BUFFER & NAMING CONVENTION ---
 use_buffer <- TRUE
 
+
 # Create main directories if they don't exist
 dir.create(temp_dir, showWarnings = FALSE, recursive = TRUE)
 dir.create(naip_dir, showWarnings = FALSE, recursive = TRUE)

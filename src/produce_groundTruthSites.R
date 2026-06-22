@@ -1,6 +1,7 @@
 # This is a generalized method for downloading material from the planetary computer
 
 pacman::p_load(dplyr, sf, terra, tidyr, tictoc, foreach, doParallel, doSNOW, snic)
+# once exported can zip via terminal with the following command for d in */; do zip -r "${d%/}.zip" "$d"; done
 
 # testing
 library(tmap)
@@ -17,14 +18,14 @@ lrr_symbol <- "G"
 mlra <- sf::st_read(dsn = "data/mlra/lower48MLRA.gpkg") |>
   dplyr::filter(LRRSYM == lrr_symbol)
 
-random <- TRUE
+random <- FALSE
 
 # establish methods for random selection within an LLR or selection from within an establish set of 1km areas else it should read in a specific set of site ids. 
 if(random){
   set.seed(12486)
   
   # assign sample number : number of sites 
-  sites <- 30
+  sites <- 50
   
   # generate random spatial samples
   points <- sf::st_sample(x = mlra, size = sites, by_polygon = TRUE)
@@ -40,20 +41,12 @@ if(random){
   
 }else{
   # new table for the update datasets or specific location runs 
-  table <-  readr::read_csv("data/groundTruthSites/lrr_F_final60_GT_sites.csv")
+  table <-  readr::read_csv("data/groundTruthSites/llr_G_forestNeyman200_sites.csv")
   # need to assing a random year - added method back to the naip scape process 
   years <- c(2010, 2016, 2020)
   table <- table %>%
     mutate(year = sample(years, size = n(), replace = TRUE))
 }
-
-
-
-
-
-
-
-
 
 
 
@@ -67,8 +60,10 @@ export_dir <- file.path("data/exportData")
 
 # --- EXECUTION TOGGLES ---
 run_parallel <- FALSE # Set to TRUE for production, FALSE for sequential debugging
-run_snic <- FALSE     # Set to TRUE to generate SNIC location data, FALSE to skip
+run_snic <- TRUE     # Set to TRUE to generate SNIC location data, FALSE to skip
 # ------------------------
+# set buffer dist 
+buff_dist_m <- 250 # produces a 1.5km image 
 
 tic("Total Script Runtime")
 
@@ -137,7 +132,7 @@ if (run_parallel) {
     
     tic()
     process_status <- tryCatch({
-      downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir)
+      downloadNAIP_vsi(aoi = aoi, year = actual_year,buffer_m = buff_dist_m, exportFolder = temp_dir)
       
       naip_string <- paste0("^naip_", actual_year, "_id_", id, "_[0-9]+\\.tif$")
       naip_files <- list.files(path = temp_dir, pattern = naip_string, full.names = TRUE)
@@ -171,7 +166,7 @@ if (run_parallel) {
   cat("Running sequentially for debugging...\n")
   
   results <- foreach(
-    task_row = 1:nrow(table),
+    task_row = 1:2,#nrow(table),
     .packages = c("terra", "sf", "tictoc", "stringr", "purrr"),
     .errorhandling = 'pass'
   ) %do% {
@@ -248,7 +243,7 @@ if (run_parallel) {
     process_status <- tryCatch({
       
       cat("4. Requesting Planetary Computer Download...\n")
-      downloadNAIP_vsi(aoi = aoi, year = actual_year, exportFolder = temp_dir)
+      downloadNAIP_vsi(aoi = aoi, year = actual_year,buffer_m = buff_dist_m,  exportFolder = temp_dir)
       
       cat("5. Locating Downloaded Files...\n")
       naip_string <- paste0("^naip_", actual_year, "_id_", id, "_[0-9]+\\.tif$")
@@ -267,7 +262,7 @@ if (run_parallel) {
         r1_path <- list.files(path = naip_dir, pattern = paste0("1km_.*", id, ".*\\.tif$"), full.names = TRUE)      
         r1  <- terra::rast(r1_path)
         seeds <- generate_scaled_seeds(r = r1)
-        process_segmentations(r = r1, seed_list = seeds, output_dir = snic_dir, file_id = id, year = actual_year)
+        process_segmentations(r = r1, seed_list = seeds, output_dir = snic_dir, file_id = id, aoi = aoi, year = actual_year)
       } else {
         cat("7. Skipping SNIC Processing...\n")
       }

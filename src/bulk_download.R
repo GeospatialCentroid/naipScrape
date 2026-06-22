@@ -30,6 +30,11 @@ aoi_table <- read.csv("data/LRR_sampleGrids/selectedSample_lrr_F_05_2026.csv")
 local_working_dir <- "data/processing_batches"
 dir.create(local_working_dir, showWarnings = FALSE, recursive = TRUE)
 
+# temp 
+## test which ground truth sites are random or part of the statified sample 
+# gts <- readr::read_csv("temp/GroundTruthGridList(GroundTruthGrids).csv")
+# gts1 <- gts |>
+#   mutate(inSample = GridID %in% aoi_table$id)
 
 
 # establish grid features

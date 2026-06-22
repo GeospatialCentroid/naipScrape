@@ -127,3 +127,98 @@ downloadNAIP_vsi <- function(aoi, year, exportFolder, buffer_m = 0) {
     )
   }
 }
+
+
+
+getNAIPCaptureDates <- function(aois, id_col = "id") {
+  # Initialize an empty list to store the results for each AOI
+  results_list <- list()
+  
+  # Connect to STAC API
+  stac_endpoint <- "https://planetarycomputer.microsoft.com/api/stac/v1"
+  con <- rstac::stac(stac_endpoint)
+  
+  # Loop through each AOI in the provided sf object
+  for (i in seq_len(nrow(aois))) {
+    single_aoi <- aois[i, ]
+    current_id <- single_aoi[[id_col]]
+    
+    # prep aoi object
+    bbox <- single_aoi |>
+      sf::st_transform(crs = "EPSG:4326") |>
+      sf::st_bbox()
+    
+    # --- EXPONENTIAL BACKOFF RETRY LOGIC ---
+    max_retries <- 10
+    retry_count <- 0
+    request_success <- FALSE
+    search_results <- NULL
+    
+    while (!request_success && retry_count < max_retries) {
+      tryCatch(
+        {
+          search_results <- con |>
+            rstac::stac_search(
+              collections = "naip",
+              bbox = bbox,
+              limit = 500 # Slightly higher limit in case of heavy overlap
+            ) |>
+            rstac::get_request() # Execute the search
+          
+          request_success <- TRUE 
+        },
+        error = function(e) {
+          retry_count <<- retry_count + 1
+          if (retry_count < max_retries) {
+            wait_time <- 10 * retry_count
+            message(sprintf(
+              "STAC API Server Overloaded for AOI %s. Waiting %d seconds to retry (Attempt %d of %d)...",
+              as.character(current_id), wait_time, retry_count, max_retries
+            ))
+            Sys.sleep(wait_time)
+          } else {
+            warning(sprintf(
+              "STAC API failed for AOI %s after %d attempts. Original error: %s",
+              as.character(current_id), max_retries, e$message
+            ))
+          }
+        }
+      )
+    }
+    # -------------------------------
+    
+    # Process results if the request was successful and features exist
+    if (request_success && length(search_results$features) > 0) {
+      # pull datetimes (e.g., "2019-08-11T00:00:00Z")
+      all_datetimes <- rstac::items_datetime(search_results)
+      
+      # Extract just the date component (YYYY-MM-DD)
+      all_dates <- as.Date(substr(all_datetimes, 1, 10))
+      
+      # Return only unique capture dates for this specific area
+      unique_dates <- sort(unique(all_dates))
+      
+      # Create a data frame mapping the ID to each unique capture date
+      results_list[[i]] <- data.frame(
+        aoi_id = current_id,
+        capture_date = unique_dates,
+        stringsAsFactors = FALSE
+      )
+    } else {
+      # If no imagery is found or the API failed entirely, record as NA
+      results_list[[i]] <- data.frame(
+        aoi_id = current_id,
+        capture_date = NA,
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+  
+  # Combine all individual AOI data frames into one master data frame
+  final_df <- do.call(rbind, results_list)
+  
+  # Optional: Drop row names for cleaner output
+  rownames(final_df) <- NULL
+  
+  return(final_df)
+}
