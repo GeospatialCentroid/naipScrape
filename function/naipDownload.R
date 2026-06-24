@@ -68,6 +68,9 @@ getNAIPYear <- function(aoi) {
 downloadNAIP_vsi <- function(aoi, year, exportFolder, buffer_m = 0) {
   Sys.setenv(GDAL_HTTP_RETRY = "YES")
   Sys.setenv(GDAL_HTTP_MAX_RETRIES = "4")
+  Sys.setenv(GDAL_DISABLE_READDIR_ON_OPEN = "EMPTY_DIR")
+  Sys.setenv(VSI_CACHE = "TRUE")
+  Sys.setenv(VSI_CACHE_SIZE = "10000000")
   
   # --- DYNAMIC BUFFER LOGIC ---
   if (buffer_m > 0) {

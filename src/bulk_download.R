@@ -58,7 +58,7 @@ aoi_table <- aoi_table |>
   mutate(batch_id = ceiling(row_number() / batch_size))
 
 # testing 
-aoi_table <- aoi_table[1:10, ]
+aoi_table <- aoi_table[1:200, ]
 
 # --- GEOSPATIAL PARAMETERS ---
 target_years <- c("2012", "2016", "2020")
@@ -66,7 +66,7 @@ target_buffer_m <- 250 # 250m buffer results in a 1.5km total width
 
 unique_batches <- unique(aoi_table$batch_id)
 
-for (current_batch in seq_along(unique_batches)) {
+for (current_batch in unique_batches) {
   # START OVERALL BATCH TIMER
   tic(paste("Total Time for Batch", current_batch))
   
@@ -106,6 +106,37 @@ for (current_batch in seq_along(unique_batches)) {
     )
     
     toc()
+    
+    # Process and bulk-write results to SQLite in a single transaction on the main thread
+    valid_results <- purrr::keep(results, is.list)
+    if (length(valid_results) > 0) {
+      results_df <- dplyr::bind_rows(valid_results)
+      
+      con <- dbConnect(RSQLite::SQLite(), db_path)
+      dbBegin(con)
+      tryCatch({
+        for (i in 1:nrow(results_df)) {
+          dbExecute(
+            con,
+            "INSERT OR REPLACE INTO aoi_tracker (aoi_id, batch_id, year_1, year_2, year_3, status) VALUES (?, ?, ?, ?, ?, ?)",
+            params = list(
+              results_df$aoi_id[i],
+              results_df$batch_id[i],
+              results_df$year_1[i],
+              results_df$year_2[i],
+              results_df$year_3[i],
+              results_df$status[i]
+            )
+          )
+        }
+        dbCommit(con)
+      }, error = function(e) {
+        dbRollback(con)
+        warning("Failed to write batch results to database: ", e$message)
+      })
+      dbDisconnect(con)
+    }
+    
   } else {
     cat("  [v] All AOIs in this batch already exist locally on the T7.\n")
   }

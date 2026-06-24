@@ -9,9 +9,9 @@ process_aoi <- function(
     p = NULL
 ) {
   # --- 1. JITTER FOR RATE LIMITING ---
-  # Force the worker to sleep for a random time between 1 and 15 seconds.
-  # This perfectly staggers the Planetary Computer API hits.
-  # Sys.sleep(runif(1, min = 1, max = 15)) # turning if off to see if I hit any issues without
+  # Force the worker to sleep for a random time between 0.5 and 3.0 seconds.
+  # This staggers the Planetary Computer API hits to avoid rate limits.
+  Sys.sleep(runif(1, min = 0.5, max = 3.0))
   
   # 2. Isolate Terra Temp Directories
   worker_temp <- file.path(tempdir(), paste0("terra_worker_", Sys.getpid()))
@@ -57,7 +57,14 @@ process_aoi <- function(
       if (!is.null(p)) {
         p(step = 1, message = sprintf("Skipped (All Complete) %s", aoi_id))
       }
-      return("Skipped - All Years Complete")
+      return(list(
+        aoi_id = aoi_id,
+        batch_id = batch_id,
+        year_1 = check$year_1,
+        year_2 = check$year_2,
+        year_3 = check$year_3,
+        status = "Complete"
+      ))
     }
     
     # Otherwise, preserve the good statuses and filter the years we actually need to process
@@ -81,28 +88,15 @@ process_aoi <- function(
   }, error = function(e) return(NULL))
   
   if (is.null(aoi)) {
-    write_success <- FALSE
-    retries <- 0
-    while (!write_success && retries < 10) {
-      tryCatch(
-        {
-          DBI::dbExecute(
-            con,
-            "INSERT OR REPLACE INTO aoi_tracker (aoi_id, batch_id, status) VALUES (?, ?, 'Failed: Missing/Timeout AOI Geometry')",
-            params = list(aoi_id, batch_id)
-          )
-          write_success <- TRUE
-        },
-        error = function(e) {
-          if (grepl("locked", e$message, ignore.case = TRUE)) {
-            Sys.sleep(runif(1, min = 1, max = 3))
-            retries <<- retries + 1
-          } else { stop(e) }
-        }
-      )
-    }
     if (!is.null(p)) p(step = 1, message = sprintf("Failed Geom %s", aoi_id))
-    return("Failed")
+    return(list(
+      aoi_id = aoi_id,
+      batch_id = batch_id,
+      year_1 = "Failed",
+      year_2 = "Failed",
+      year_3 = "Failed",
+      status = "Failed: Missing/Timeout AOI Geometry"
+    ))
   }
   
   # Gather all available years with protection
@@ -114,29 +108,15 @@ process_aoi <- function(
   }, error = function(e) return(NULL))
   
   if (is.null(years_available)) {
-    # If the metadata API query hangs, log the failure and exit cleanly
-    write_success <- FALSE
-    retries <- 0
-    while (!write_success && retries < 10) {
-      tryCatch(
-        {
-          DBI::dbExecute(
-            con,
-            "INSERT OR REPLACE INTO aoi_tracker (aoi_id, batch_id, status) VALUES (?, ?, 'Failed: API Timeout on Metadata')",
-            params = list(aoi_id, batch_id)
-          )
-          write_success <- TRUE
-        },
-        error = function(e) {
-          if (grepl("locked", e$message, ignore.case = TRUE)) {
-            Sys.sleep(runif(1, min = 1, max = 3))
-            retries <<- retries + 1
-          } else { stop(e) }
-        }
-      )
-    }
     if (!is.null(p)) p(step = 1, message = sprintf("Failed Metadata %s", aoi_id))
-    return("Failed")
+    return(list(
+      aoi_id = aoi_id,
+      batch_id = batch_id,
+      year_1 = "Failed",
+      year_2 = "Failed",
+      year_3 = "Failed",
+      status = "Failed: API Timeout on Metadata"
+    ))
   }
   # 6. Process ONLY the missing/failed years
   for (target_year in years_to_process) {
@@ -296,44 +276,16 @@ process_aoi <- function(
   )
   final_status <- ifelse(is_complete, "Complete", "Partial")
   
-  # 7. Log Completion with Exponential Backoff Database Retry
-  write_success <- FALSE
-  retries <- 0
-  max_db_retries <- 15 # Increased from 10
-  
-  while (!write_success && retries < max_db_retries) {
-    tryCatch(
-      {
-        DBI::dbExecute(
-          con,
-          "INSERT OR REPLACE INTO aoi_tracker (aoi_id, batch_id, year_1, year_2, year_3, status) VALUES (?, ?, ?, ?, ?, ?)",
-          params = list(aoi_id, batch_id, s1, s2, s3, final_status)
-        )
-        write_success <- TRUE
-      },
-      error = function(e) {
-        if (grepl("locked", e$message, ignore.case = TRUE)) {
-          retries <<- retries + 1
-          
-          # Exponential backoff: Base 2, to the power of the retry count.
-          # Example: Retry 1 sleeps up to 2s, Retry 4 sleeps up to 16s.
-          max_sleep <- 2^retries 
-          
-          # Hard cap the wait time so a worker doesn't sleep for an hour
-          max_sleep <- min(max_sleep, 30) 
-          
-          Sys.sleep(runif(1, min = 1, max = max_sleep))
-          
-        } else {
-          stop(e)
-        }
-      }
-    )
-  }
-  
   if (!is.null(p)) {
     p(step = 1, message = sprintf("Finished %s", aoi_id))
   }
   
-  return(final_status)
+  return(list(
+    aoi_id = aoi_id,
+    batch_id = batch_id,
+    year_1 = s1,
+    year_2 = s2,
+    year_3 = s3,
+    status = final_status
+  ))
 }
