@@ -6,6 +6,7 @@ process_aoi <- function(
     g100_grid,
     batch_id,
     network_dir,
+    buffer_m = 250,
     p = NULL
 ) {
   # --- 1. JITTER FOR RATE LIMITING ---
@@ -171,7 +172,8 @@ process_aoi <- function(
                 downloadNAIP_vsi(
                   aoi = aoi,
                   year = actual_year,
-                  exportFolder = worker_temp
+                  exportFolder = worker_temp,
+                  buffer_m = buffer_m
                 )
                 download_success <- TRUE # If it gets here, it worked!
               },
@@ -216,6 +218,7 @@ process_aoi <- function(
             out_path = aoi_folder,
             aoi = aoi,
             year = actual_year,
+            buffer_m = buffer_m,
             buffer_only = TRUE
           )
           

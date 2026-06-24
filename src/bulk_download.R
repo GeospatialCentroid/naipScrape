@@ -58,7 +58,7 @@ aoi_table <- aoi_table |>
   mutate(batch_id = ceiling(row_number() / batch_size))
 
 # testing 
-aoi_table <- aoi_table[1:200, ]
+aoi_table <- aoi_table[1:20, ]
 
 # --- GEOSPATIAL PARAMETERS ---
 target_years <- c("2012", "2016", "2020")
@@ -99,7 +99,8 @@ for (current_batch in unique_batches) {
         g100_grid = g100,
         db_path = db_path,
         batch_id = current_batch,
-        network_dir = batch_folder # Bypassing network distinction for this run
+        network_dir = batch_folder, # Bypassing network distinction for this run
+        buffer_m = target_buffer_m
       ),
       .progress = TRUE,
       .options = furrr_options(seed = TRUE)
