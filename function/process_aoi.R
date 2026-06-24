@@ -32,6 +32,7 @@ process_aoi <- function(
   # --- 4. SMART RETRY LOGIC (JSON File Based) ---
   years_to_process <- target_years
   year_statuses <- list()
+  year_metas <- list()
   
   if (file.exists(status_file)) {
     # Read and parse status JSON
@@ -44,6 +45,11 @@ process_aoi <- function(
       y2_ok <- !is.null(check$year_2) && (check$year_2 == "Success" || grepl("Skipped", check$year_2))
       y3_ok <- !is.null(check$year_3) && (check$year_3 == "Success" || grepl("Skipped", check$year_3))
       
+      # Retain previously loaded metadata if present
+      if (!is.null(check$year_1_meta)) year_metas[[target_years[1]]] <- check$year_1_meta
+      if (!is.null(check$year_2_meta)) year_metas[[target_years[2]]] <- check$year_2_meta
+      if (!is.null(check$year_3_meta)) year_metas[[target_years[3]]] <- check$year_3_meta
+      
       # If all three are good, we can completely skip this AOI
       if (y1_ok && y2_ok && y3_ok) {
         if (!is.null(p)) {
@@ -55,7 +61,10 @@ process_aoi <- function(
           year_1 = check$year_1,
           year_2 = check$year_2,
           year_3 = check$year_3,
-          status = "Complete"
+          status = "Complete",
+          year_1_meta = check$year_1_meta,
+          year_2_meta = check$year_2_meta,
+          year_3_meta = check$year_3_meta
         ))
       }
       
@@ -88,7 +97,10 @@ process_aoi <- function(
       year_1 = "Failed",
       year_2 = "Failed",
       year_3 = "Failed",
-      status = "Failed: Missing/Timeout AOI Geometry"
+      status = "Failed: Missing/Timeout AOI Geometry",
+      year_1_meta = year_metas[[target_years[1]]],
+      year_2_meta = year_metas[[target_years[2]]],
+      year_3_meta = year_metas[[target_years[3]]]
     )
     writeLines(jsonlite::toJSON(res, auto_unbox = TRUE, pretty = TRUE), status_file)
     return(res)
@@ -111,7 +123,10 @@ process_aoi <- function(
       year_1 = "Failed",
       year_2 = "Failed",
       year_3 = "Failed",
-      status = "Failed: API Timeout on Metadata"
+      status = "Failed: API Timeout on Metadata",
+      year_1_meta = year_metas[[target_years[1]]],
+      year_2_meta = year_metas[[target_years[2]]],
+      year_3_meta = year_metas[[target_years[3]]]
     )
     writeLines(jsonlite::toJSON(res, auto_unbox = TRUE, pretty = TRUE), status_file)
     return(res)
@@ -163,10 +178,11 @@ process_aoi <- function(
           retry_count <- 0
           download_success <- FALSE
           
+          tile_meta <- NULL
           while (!download_success && retry_count < max_retries) {
             tryCatch(
               {
-                downloadNAIP_vsi(
+                tile_meta <<- downloadNAIP_vsi(
                   aoi = aoi,
                   year = actual_year,
                   exportFolder = worker_temp,
@@ -220,6 +236,14 @@ process_aoi <- function(
           )
           
           year_statuses[[target_year]] <- "Success"
+          
+          # Store exact fallback year and collection metadata
+          year_metas[[target_year]] <<- list(
+            actual_year   = actual_year,
+            capture_dates = tile_meta$collection_date,
+            item_ids      = tile_meta$item_id,
+            naip_states   = tile_meta$naip_state
+          )
           
           file.remove(naip_files)
           terra::tmpFiles(remove = TRUE)
@@ -286,7 +310,10 @@ process_aoi <- function(
     year_1 = s1,
     year_2 = s2,
     year_3 = s3,
-    status = final_status
+    status = final_status,
+    year_1_meta = year_metas[[target_years[1]]],
+    year_2_meta = year_metas[[target_years[2]]],
+    year_3_meta = year_metas[[target_years[3]]]
   )
   writeLines(jsonlite::toJSON(res, auto_unbox = TRUE, pretty = TRUE), status_file)
   return(res)

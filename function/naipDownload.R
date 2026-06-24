@@ -140,6 +140,17 @@ downloadNAIP_vsi <- function(aoi, year, exportFolder, buffer_m = 0) {
       }
     )
   }
+  
+  # Build and return the metadata dataframe
+  meta_df <- data.frame(
+    aoi_id          = aoi$id[1],
+    target_year     = year,
+    tile_index      = seq_along(search_results$features),
+    item_id         = sapply(search_results$features, function(f) f$id),
+    collection_date = sapply(search_results$features, function(f) f$properties$datetime),
+    naip_state      = sapply(search_results$features, function(f) f$properties[["naip:state"]])
+  )
+  return(meta_df)
 }
 
 

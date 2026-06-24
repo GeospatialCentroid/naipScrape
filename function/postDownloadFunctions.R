@@ -1,3 +1,18 @@
+# Helper to fix Alpha interpretation on Band 4 and calculate min-max stats for QGIS
+fix_alpha_band <- function(filepath) {
+  if (!file.exists(filepath)) return(NULL)
+  tmp <- paste0(filepath, ".fix.tif")
+  sf::gdal_utils(
+    "translate",
+    source = filepath,
+    destination = tmp,
+    options = c("-colorinterp_4", "undefined")
+  )
+  file.remove(filepath)
+  file.rename(tmp, filepath)
+  sf::gdal_utils("info", source = filepath, options = "-stats", quiet = TRUE)
+}
+
 # 1. Update the helper function to force a CRS match
 readAndName <- function(path, target_crs) {
   r1 <- terra::rast(path)
@@ -63,6 +78,7 @@ mergeAndExportNAIP <- function(files, out_path, aoi, year, buffer_m = 250, buffe
     paste0("naip_", label_km, "_", aoi$id, "_", year, ".tif")
   )
   terra::writeRaster(x = m1, export_buf, datatype = "INT1U", overwrite = TRUE)
+  fix_alpha_band(export_buf)
   
   # Conditionally process and export the 1km data
   if (!buffer_only) {
@@ -74,6 +90,7 @@ mergeAndExportNAIP <- function(files, out_path, aoi, year, buffer_m = 250, buffe
       paste0("naip_1km_", aoi$id, "_", year, ".tif")
     )
     terra::writeRaster(x = m2, export_1km, datatype = "INT1U", overwrite = TRUE)
+    fix_alpha_band(export_1km)
   }
 }
 
