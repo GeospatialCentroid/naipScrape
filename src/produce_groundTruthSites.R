@@ -21,9 +21,9 @@ mlra <- sf::st_read(dsn = "data/mlra/lower48MLRA.gpkg") |>
 random <- FALSE
 
 # establish methods for random selection within an LLR or selection from within an establish set of 1km areas else it should read in a specific set of site ids. 
+set.seed(12486)
+
 if(random){
-  set.seed(12486)
-  
   # assign sample number : number of sites 
   sites <- 50
   
@@ -43,7 +43,7 @@ if(random){
   # new table for the update datasets or specific location runs 
   table <-  readr::read_csv("data/groundTruthSites/llr_G_forestNeyman200_sites.csv")
   # need to assing a random year - added method back to the naip scape process 
-  years <- c(2010, 2016, 2020)
+  years <- c(2012, 2016, 2020)
   table <- table %>%
     mutate(year = sample(years, size = n(), replace = TRUE))
 }
@@ -59,7 +59,7 @@ temp_dir <- file.path("data/download")
 export_dir <- file.path("data/exportData")
 
 # --- EXECUTION TOGGLES ---
-run_parallel <- TRUE # Set to TRUE for production, FALSE for sequential debugging
+run_parallel <- FALSE # Set to TRUE for production, FALSE for sequential debugging
 run_snic <- TRUE     # Set to TRUE to generate SNIC location data, FALSE to skip
 # ------------------------
 # set buffer dist 
@@ -71,7 +71,7 @@ if (run_parallel) {
   # ==========================================
   # PARALLEL EXECUTION
   # ==========================================
-  num_cores <- max(1, parallel::detectCores() - 8)
+  num_cores <- max(1, parallel::detectCores() - 16)
   cl <- makeCluster(num_cores)
   registerDoParallel(cl)
   cat("Starting cluster with", num_cores, "cores...\n")
@@ -81,9 +81,11 @@ if (run_parallel) {
     .export = c("getAOI", "getNAIPYear", "downloadNAIP_vsi", "mergeAndExportNAIP", 
                 "generate_scaled_seeds", "process_segmentations", "copyToExport",
                 "g100", "temp_dir", "naip_dir", "snic_dir", "run_snic", "buff_dist_m", 
-                "table", "export_dir", "aoi_dir", "lidar_dir"), 
+                "table", "export_dir", "aoi_dir", "lidar_dir", 
+                "readAndName"), # <--- ADD THIS HERE
     .errorhandling = 'pass'
   ) %dopar% {
+    lapply(list.files(path = "function", pattern = ".R", full.names = TRUE), source)
     
     target_year <- as.character(table$year[task_row]) 
     
@@ -333,3 +335,80 @@ if (length(failed_runs) > 0) {
     cat("ID:", fail$id, "| Year:", fail$year, "| Error:", fail$status, "\n")
   }
 }
+
+
+
+
+cleanup_mismatched_aois <- function(target_table, export_directory, dry_run = TRUE) {
+  # Get a list of all directories in the target folder
+  all_folders <- list.dirs(export_directory, full.names = TRUE, recursive = FALSE)
+  
+  if (length(all_folders) == 0) {
+    message("No folders found in the export directory.")
+    return(invisible())
+  }
+  
+  # Filter for folders that match the "aoi_" prefix
+  folder_basenames <- basename(all_folders)
+  valid_folders <- all_folders[grepl("^aoi_", folder_basenames)]
+  valid_basenames <- basename(valid_folders)
+  
+  folders_to_delete <- c()
+  
+  for (i in seq_along(valid_folders)) {
+    folder_path <- valid_folders[i]
+    folder_name <- valid_basenames[i]
+    
+    # Strip the "aoi_" prefix to isolate {id}_{year}
+    name_no_prefix <- sub("^aoi_", "", folder_name)
+    
+    # Extract the ID and Year using regex. 
+    # This looks for everything up to the last underscore for the ID, 
+    # and exactly 4 digits at the end for the year.
+    matches <- regmatches(name_no_prefix, regexec("^(.*)_([0-9]{4})$", name_no_prefix))
+    
+    if (length(matches[[1]]) == 3) {
+      folder_id <- matches[[1]][2]
+      folder_year <- as.character(matches[[1]][3])
+      
+      # Check if this specific AOI ID exists in the target table
+      if (folder_id %in% target_table$id) {
+        
+        # Retrieve the newly assigned expected year from the table
+        expected_year <- as.character(target_table$year[target_table$id == folder_id])
+        
+        # If the years do not match, flag the folder for deletion
+        if (folder_year != expected_year) {
+          folders_to_delete <- c(folders_to_delete, folder_path)
+        }
+      }
+    }
+  }
+  
+  # Execution block
+  if (length(folders_to_delete) > 0) {
+    message(sprintf("Found %d mismatched folders.", length(folders_to_delete)))
+    
+    for (del_folder in folders_to_delete) {
+      if (dry_run) {
+        message(paste("[DRY RUN] Would delete:", basename(del_folder)))
+      } else {
+        message(paste("Deleting:", basename(del_folder)))
+        unlink(del_folder, recursive = TRUE)
+      }
+    }
+    
+    if (!dry_run) message("Cleanup complete.")
+    
+  } else {
+    message("No mismatched folders found. Directory is clean.")
+  }
+  
+  return(invisible(folders_to_delete))
+}
+
+# test before deleting completely 
+cleanup_mismatched_aois(target_table = table, export_directory = export_dir, dry_run = TRUE)
+
+# 2. Once verified, run it with dry_run = FALSE to actually delete the data:
+# cleanup_mismatched_aois(target_table = table, export_directory = export_dir, dry_run = FALSE)
