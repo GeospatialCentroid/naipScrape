@@ -3,7 +3,7 @@
 # =========================================================
 
 pacman::p_load(
-  dplyr, sf, terra, tidyr, furrr, future, DBI, RSQLite, tools, tictoc
+  dplyr, sf, terra, tidyr, furrr, future, DBI, RSQLite, tools, tictoc, rstac
 )
 
 # ---------------------------------------------------------
@@ -12,16 +12,13 @@ pacman::p_load(
 # Source functions first so get_env_config() is available
 lapply(list.files(path = "function", pattern = ".R", full.names = TRUE), source)
 
-# TOGGLE ENVIRONMENT HERE (TRUE = MacBook via Tailscale | FALSE = Ubuntu/Omarchy VM via 10G)
-env_config <- get_env_config(MAC = FALSE) 
-
 # Define T7 Drive path directly for local processing
 local_working_dir <- "/run/media/dan/T7/naip_bulk_export"
 dir.create(local_working_dir, showWarnings = FALSE, recursive = TRUE)
 
-message(sprintf("Initializing in %s mode... Output directed to: %s", env_config$os_env, local_working_dir))
+message(sprintf("Initializing in local mode... Output directed to: %s", local_working_dir))
 
-aoi_table <- read.csv("data/LRR_sampleGrids/selectedSample_lrr_F_05_2026.csv")
+aoi_table <- read.csv("data/LRR_sampleGrids/selectedSample_lrr_G_draw_1400_05_2026.csv")
 
 # establish grid features
 g100 <- sf::st_read("data/grid100km_aea.gpkg")
@@ -61,7 +58,7 @@ aoi_table <- aoi_table |>
   mutate(batch_id = ceiling(row_number() / batch_size))
 
 # testing 
-# aoi_table <- aoi_table[1:10, ]
+aoi_table <- aoi_table[1:10, ]
 
 # --- GEOSPATIAL PARAMETERS ---
 target_years <- c("2012", "2016", "2020")
@@ -121,6 +118,9 @@ for (current_batch in seq_along(unique_batches)) {
 # ARCHIVED NETWORK TRANSFER & MOUNTING LOGIC
 # =========================================================
 # Retained for future reference when reverting to the TrueNAS workflow.
+#
+# # TOGGLE ENVIRONMENT HERE (TRUE = MacBook via Tailscale | FALSE = Ubuntu/Omarchy VM via 10G)
+# env_config <- get_env_config(MAC = FALSE) 
 #
 # --- Drive Mounting Check ---
 # Check if the mount point appears in the list of currently mounted drives
