@@ -36,7 +36,7 @@ aoi_table <- aoi_table |>
   mutate(batch_id = ceiling(row_number() / batch_size))
 
 # testing 
-aoi_table <- aoi_table[1:20, ]
+aoi_table <- aoi_table[1:10, ]
 
 # --- GEOSPATIAL PARAMETERS ---
 target_years <- c("2012", "2016", "2020")
