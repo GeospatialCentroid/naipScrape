@@ -182,7 +182,7 @@ process_aoi <- function(
           while (!download_success && retry_count < max_retries) {
             tryCatch(
               {
-                tile_meta <<- downloadNAIP_vsi(
+                tile_meta <- downloadNAIP_vsi(
                   aoi = aoi,
                   year = actual_year,
                   exportFolder = worker_temp,
@@ -238,7 +238,7 @@ process_aoi <- function(
           year_statuses[[target_year]] <- "Success"
           
           # Store exact fallback year and collection metadata
-          year_metas[[target_year]] <<- list(
+          year_metas[[target_year]] <- list(
             actual_year   = actual_year,
             capture_dates = tile_meta$collection_date,
             item_ids      = tile_meta$item_id,
