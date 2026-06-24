@@ -417,3 +417,86 @@ cleanup_mismatched_aois(target_table = table, export_directory = export_dir, dry
 
 # 2. Once verified, run it with dry_run = FALSE to actually delete the data:
 # cleanup_mismatched_aois(target_table = table, export_directory = export_dir, dry_run = FALSE)
+
+check_orphan_aois <- function(target_table_path, export_directory, delete_orphans = FALSE) {
+  # 1. Load the sample table
+  target_table <- read.csv(target_table_path)
+  
+  # Check for column names (handles 'id' or 'GridID' depending on your table structure)
+  if (!"id" %in% colnames(target_table)) {
+    if ("GridID" %in% colnames(target_table)) {
+      target_table$id <- target_table$GridID
+    } else {
+      stop("Could not find an 'id' or 'GridID' column in the provided table.")
+    }
+  }
+  
+  # 2. Get a list of all directories in the export folder
+  all_folders <- list.dirs(export_directory, full.names = TRUE, recursive = FALSE)
+  
+  if (length(all_folders) == 0) {
+    message("No folders found in the export directory.")
+    return(invisible(NULL))
+  }
+  
+  # Filter for folders that match the standard "aoi_" prefix
+  folder_basenames <- basename(all_folders)
+  valid_folders <- all_folders[grepl("^aoi_", folder_basenames)]
+  valid_basenames <- basename(valid_folders)
+  
+  orphaned_folders <- c()
+  
+  # 3. Extract IDs and Compare
+  for (i in seq_along(valid_folders)) {
+    folder_path <- valid_folders[i]
+    folder_name <- valid_basenames[i]
+    
+    # Strip the "aoi_" prefix
+    name_no_prefix <- sub("^aoi_", "", folder_name)
+    
+    # Extract the ID (everything before the final _YYYY)
+    matches <- regmatches(name_no_prefix, regexec("^(.*)_([0-9]{4})$", name_no_prefix))
+    
+    if (length(matches[[1]]) == 3) {
+      folder_id <- matches[[1]][2]
+      
+      # Check if this ID is MISSING from the target table
+      if (!(as.character(folder_id) %in% as.character(target_table$id))) {
+        orphaned_folders <- c(orphaned_folders, folder_path)
+      }
+    }
+  }
+  
+  # 4. Execution & Reporting
+  if (length(orphaned_folders) > 0) {
+    message(sprintf("Found %d orphaned folders (AOIs not in the attached file).", length(orphaned_folders)))
+    
+    for (orphan in orphaned_folders) {
+      if (delete_orphans) {
+        message(paste("Deleting Orphan:", basename(orphan)))
+        unlink(orphan, recursive = TRUE)
+      } else {
+        message(paste("Orphan Detected:", basename(orphan)))
+      }
+    }
+    
+    if (!delete_orphans) {
+      message("\nRun with `delete_orphans = TRUE` to remove these directories.")
+    }
+  } else {
+    message("All exported AOI folders are accounted for in the target table. No orphans found.")
+  }
+  
+  return(invisible(orphaned_folders))
+}
+
+# ==========================================
+# HOW TO RUN IT
+# ==========================================
+
+# Define your paths
+csv_file <- "data/LRR_sampleGrids/selectedSample_lrr_G_draw_1400_05_2026.csv"
+export_dir <- "data/exportData" # Update this to your T7 path if currently processing locally
+
+# Run in safe mode (will only print the folders that don't match)
+check_orphan_aois(target_table_path = csv_file, export_directory = export_dir, delete_orphans = FALSE)
