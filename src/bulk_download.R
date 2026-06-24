@@ -3,7 +3,7 @@
 # =========================================================
 
 pacman::p_load(
-  dplyr, sf, terra, tidyr, furrr, future, DBI, RSQLite, tools, tictoc, rstac
+  dplyr, sf, terra, tidyr, furrr, future, tools, tictoc, rstac, jsonlite
 )
 
 # ---------------------------------------------------------
@@ -22,28 +22,6 @@ aoi_table <- read.csv("data/LRR_sampleGrids/selectedSample_lrr_G_draw_1400_05_20
 
 # establish grid features
 g100 <- sf::st_read("data/grid100km_aea.gpkg")
-
-# ---------------------------------------------------------
-# 2. SQLITE DATABASE INITIALIZATION
-# ---------------------------------------------------------
-db_path <- "data/download_tracker.sqlite"
-con <- dbConnect(RSQLite::SQLite(), db_path)
-
-dbExecute(
-  con,
-  "
-  CREATE TABLE IF NOT EXISTS aoi_tracker (
-    aoi_id TEXT PRIMARY KEY,
-    batch_id INTEGER,
-    year_1 TEXT,
-    year_2 TEXT,
-    year_3 TEXT,
-    status TEXT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-"
-)
-dbDisconnect(con)
 
 # ---------------------------------------------------------
 # 3. EXECUTION: BATCHING & FURRR
@@ -97,7 +75,6 @@ for (current_batch in unique_batches) {
         target_years = target_years,
         local_dir = batch_folder, # Pointing directly to T7
         g100_grid = g100,
-        db_path = db_path,
         batch_id = current_batch,
         network_dir = batch_folder, # Bypassing network distinction for this run
         buffer_m = target_buffer_m
@@ -107,37 +84,6 @@ for (current_batch in unique_batches) {
     )
     
     toc()
-    
-    # Process and bulk-write results to SQLite in a single transaction on the main thread
-    valid_results <- purrr::keep(results, is.list)
-    if (length(valid_results) > 0) {
-      results_df <- dplyr::bind_rows(valid_results)
-      
-      con <- dbConnect(RSQLite::SQLite(), db_path)
-      dbBegin(con)
-      tryCatch({
-        for (i in 1:nrow(results_df)) {
-          dbExecute(
-            con,
-            "INSERT OR REPLACE INTO aoi_tracker (aoi_id, batch_id, year_1, year_2, year_3, status) VALUES (?, ?, ?, ?, ?, ?)",
-            params = list(
-              results_df$aoi_id[i],
-              results_df$batch_id[i],
-              results_df$year_1[i],
-              results_df$year_2[i],
-              results_df$year_3[i],
-              results_df$status[i]
-            )
-          )
-        }
-        dbCommit(con)
-      }, error = function(e) {
-        dbRollback(con)
-        warning("Failed to write batch results to database: ", e$message)
-      })
-      dbDisconnect(con)
-    }
-    
   } else {
     cat("  [v] All AOIs in this batch already exist locally on the T7.\n")
   }

@@ -2,7 +2,6 @@ process_aoi <- function(
     aoi_id,
     target_years,
     local_dir,
-    db_path,
     g100_grid,
     batch_id,
     network_dir,
@@ -26,59 +25,51 @@ process_aoi <- function(
     add = TRUE
   )
   
-  # 3. Database Connection & Concurrency
-  con <- DBI::dbConnect(RSQLite::SQLite(), db_path, synchronous = NULL)
-  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  # 3. Create Flat Output Directory & Status Path
+  aoi_folder <- file.path(local_dir, aoi_id)
+  status_file <- file.path(aoi_folder, "status.json")
   
-  DBI::dbExecute(con, "PRAGMA busy_timeout = 10000;")
-  DBI::dbExecute(con, "PRAGMA journal_mode = WAL;")
-  
-  # --- 4. SMART RETRY LOGIC ---
-  check <- DBI::dbGetQuery(
-    con,
-    "SELECT * FROM aoi_tracker WHERE aoi_id = ?",
-    params = list(aoi_id)
-  )
-  
-  # Default assumption: process all years, no prior statuses
+  # --- 4. SMART RETRY LOGIC (JSON File Based) ---
   years_to_process <- target_years
   year_statuses <- list()
   
-  if (nrow(check) > 0) {
-    # Check which specific years succeeded previously
-    y1_ok <- !is.na(check$year_1) &&
-      (check$year_1 == "Success" || grepl("Skipped", check$year_1))
-    y2_ok <- !is.na(check$year_2) &&
-      (check$year_2 == "Success" || grepl("Skipped", check$year_2))
-    y3_ok <- !is.na(check$year_3) &&
-      (check$year_3 == "Success" || grepl("Skipped", check$year_3))
+  if (file.exists(status_file)) {
+    # Read and parse status JSON
+    check <- tryCatch({
+      jsonlite::fromJSON(status_file)
+    }, error = function(e) NULL)
     
-    # If all three are good, we can completely skip this AOI
-    if (y1_ok && y2_ok && y3_ok) {
-      if (!is.null(p)) {
-        p(step = 1, message = sprintf("Skipped (All Complete) %s", aoi_id))
+    if (!is.null(check)) {
+      y1_ok <- !is.null(check$year_1) && (check$year_1 == "Success" || grepl("Skipped", check$year_1))
+      y2_ok <- !is.null(check$year_2) && (check$year_2 == "Success" || grepl("Skipped", check$year_2))
+      y3_ok <- !is.null(check$year_3) && (check$year_3 == "Success" || grepl("Skipped", check$year_3))
+      
+      # If all three are good, we can completely skip this AOI
+      if (y1_ok && y2_ok && y3_ok) {
+        if (!is.null(p)) {
+          p(step = 1, message = sprintf("Skipped (All Complete) %s", aoi_id))
+        }
+        return(list(
+          aoi_id = aoi_id,
+          batch_id = batch_id,
+          year_1 = check$year_1,
+          year_2 = check$year_2,
+          year_3 = check$year_3,
+          status = "Complete"
+        ))
       }
-      return(list(
-        aoi_id = aoi_id,
-        batch_id = batch_id,
-        year_1 = check$year_1,
-        year_2 = check$year_2,
-        year_3 = check$year_3,
-        status = "Complete"
-      ))
+      
+      # Otherwise, preserve the good statuses and filter the years we actually need to process
+      year_statuses[[target_years[1]]] <- check$year_1
+      year_statuses[[target_years[2]]] <- check$year_2
+      year_statuses[[target_years[3]]] <- check$year_3
+      
+      years_to_process <- target_years[!c(y1_ok, y2_ok, y3_ok)]
     }
-    
-    # Otherwise, preserve the good statuses and filter the years we actually need to process
-    year_statuses[[target_years[1]]] <- check$year_1
-    year_statuses[[target_years[2]]] <- check$year_2
-    year_statuses[[target_years[3]]] <- check$year_3
-    
-    years_to_process <- target_years[!c(y1_ok, y2_ok, y3_ok)]
   }
   
-  # 5. Create Flat Output Directory
-  aoi_folder <- file.path(local_dir, aoi_id)
-  dir.create(aoi_folder, showWarnings = FALSE)
+  # Ensure AOI folder is created
+  dir.create(aoi_folder, showWarnings = FALSE, recursive = TRUE)
   
   # --- PROTECTED API QUERIES ---
   current_step <- "Fetching AOI Geometry"
@@ -90,14 +81,17 @@ process_aoi <- function(
   
   if (is.null(aoi)) {
     if (!is.null(p)) p(step = 1, message = sprintf("Failed Geom %s", aoi_id))
-    return(list(
+    
+    res <- list(
       aoi_id = aoi_id,
       batch_id = batch_id,
       year_1 = "Failed",
       year_2 = "Failed",
       year_3 = "Failed",
       status = "Failed: Missing/Timeout AOI Geometry"
-    ))
+    )
+    writeLines(jsonlite::toJSON(res, auto_unbox = TRUE, pretty = TRUE), status_file)
+    return(res)
   }
   
   # Gather all available years with protection
@@ -110,14 +104,17 @@ process_aoi <- function(
   
   if (is.null(years_available)) {
     if (!is.null(p)) p(step = 1, message = sprintf("Failed Metadata %s", aoi_id))
-    return(list(
+    
+    res <- list(
       aoi_id = aoi_id,
       batch_id = batch_id,
       year_1 = "Failed",
       year_2 = "Failed",
       year_3 = "Failed",
       status = "Failed: API Timeout on Metadata"
-    ))
+    )
+    writeLines(jsonlite::toJSON(res, auto_unbox = TRUE, pretty = TRUE), status_file)
+    return(res)
   }
   # 6. Process ONLY the missing/failed years
   for (target_year in years_to_process) {
@@ -283,12 +280,14 @@ process_aoi <- function(
     p(step = 1, message = sprintf("Finished %s", aoi_id))
   }
   
-  return(list(
+  res <- list(
     aoi_id = aoi_id,
     batch_id = batch_id,
     year_1 = s1,
     year_2 = s2,
     year_3 = s3,
     status = final_status
-  ))
+  )
+  writeLines(jsonlite::toJSON(res, auto_unbox = TRUE, pretty = TRUE), status_file)
+  return(res)
 }
