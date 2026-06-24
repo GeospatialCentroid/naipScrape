@@ -59,7 +59,7 @@ temp_dir <- file.path("data/download")
 export_dir <- file.path("data/exportData")
 
 # --- EXECUTION TOGGLES ---
-run_parallel <- FALSE # Set to TRUE for production, FALSE for sequential debugging
+run_parallel <- TRUE # Set to TRUE for production, FALSE for sequential debugging
 run_snic <- TRUE     # Set to TRUE to generate SNIC location data, FALSE to skip
 # ------------------------
 # set buffer dist 
@@ -180,7 +180,7 @@ if (run_parallel) {
   cat("Running sequentially for debugging...\n")
   
   results <- foreach(
-    task_row = 1:nrow(table),
+    task_row = 1:2,#nrow(table),
     .packages = c("terra", "sf", "tictoc", "stringr", "purrr"),
     .errorhandling = 'pass'
   ) %do% {
@@ -363,8 +363,6 @@ cleanup_mismatched_aois <- function(target_table, export_directory, dry_run = TR
     name_no_prefix <- sub("^aoi_", "", folder_name)
     
     # Extract the ID and Year using regex. 
-    # This looks for everything up to the last underscore for the ID, 
-    # and exactly 4 digits at the end for the year.
     matches <- regmatches(name_no_prefix, regexec("^(.*)_([0-9]{4})$", name_no_prefix))
     
     if (length(matches[[1]]) == 3) {
@@ -374,11 +372,19 @@ cleanup_mismatched_aois <- function(target_table, export_directory, dry_run = TR
       # Check if this specific AOI ID exists in the target table
       if (folder_id %in% target_table$id) {
         
-        # Retrieve the newly assigned expected year from the table
-        expected_year <- as.character(target_table$year[target_table$id == folder_id])
+        # Retrieve the assigned target year from the table
+        expected_year_num <- as.numeric(target_table$year[target_table$id == folder_id])
         
-        # If the years do not match, flag the folder for deletion
-        if (folder_year != expected_year) {
+        # Recreate the robust fallback range used in the download script
+        acceptable_years <- as.character(c(
+          expected_year_num,
+          expected_year_num - 1,
+          expected_year_num - 2,
+          expected_year_num + 1
+        ))
+        
+        # If the folder year is NOT in the acceptable range, flag for deletion
+        if (!(folder_year %in% acceptable_years)) {
           folders_to_delete <- c(folders_to_delete, folder_path)
         }
       }
@@ -406,7 +412,6 @@ cleanup_mismatched_aois <- function(target_table, export_directory, dry_run = TR
   
   return(invisible(folders_to_delete))
 }
-
 # test before deleting completely 
 cleanup_mismatched_aois(target_table = table, export_directory = export_dir, dry_run = TRUE)
 
