@@ -41,11 +41,12 @@ mergeAndExportNAIP <- function(files, out_path, aoi, year, buffer_m = 250, buffe
   )
   
   if (length(files) > 1) {
-    rast <- purrr::map(
+    rast_list <- purrr::map(
       .x = files,
-      ~ readAndName(.x, target_crs = master_crs)
-    ) |>
-      terra::sprc() |>
+      ~ readAndName(.x, target_crs = master_crs) |>
+          terra::resample(temp, method = "bilinear")
+    )
+    rast <- terra::sprc(rast_list) |>
       terra::mosaic(fun = "mean")
   } else {
     rast <- terra::rast(files)

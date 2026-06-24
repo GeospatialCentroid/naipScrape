@@ -118,12 +118,23 @@ downloadNAIP_vsi <- function(aoi, year, exportFolder, buffer_m = 0) {
       paste0("naip_", year, "_id_", aoi$id[1], "_", i, ".tif")
     )
     
-    terra::crop(
-      x = remote_rast, 
-      y = aoi_proj, 
-      filename = out_file, 
-      datatype = "INT1U", 
-      overwrite = TRUE
+    tryCatch(
+      {
+        terra::crop(
+          x = remote_rast, 
+          y = aoi_proj, 
+          filename = out_file, 
+          datatype = "INT1U", 
+          overwrite = TRUE
+        )
+      },
+      error = function(e) {
+        if (grepl("extents do not overlap", e$message, ignore.case = TRUE)) {
+          message(sprintf("  [-] Tile %d does not overlap AOI geometry. Skipping.", i))
+        } else {
+          stop(e)
+        }
+      }
     )
   }
 }
